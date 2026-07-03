@@ -9,17 +9,26 @@ const { frontmatter } = Astro.props;
     <title>{frontmatter.title}</title>
   </head>
   <body>
-    <nav>
-      <a href="/">home</a>
-    </nav>
+    <header class="site-header">
+      <a href="/">hudson c. mitchell-pullman</a>
+    </header>
     <slot />
   </body>
 </html>
 
 <style is:global>
+  .site-header {
+    text-align: center;
+  }
+  .site-header a {
+    color: #000;
+    text-decoration: none;
+    font-weight: bold;
+  }
   .layout {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    grid-template-rows: 280px min-content;
     grid-template-areas: "text photo" "text links";
     gap: 3rem;
     align-items: start;
@@ -40,6 +49,7 @@ const { frontmatter } = Astro.props;
   @media (max-width: 700px) {
     .layout {
       grid-template-columns: 1fr;
+      grid-template-rows: auto auto auto;
       grid-template-areas: "photo" "text" "links";
     }
     .photo { position: static; }
