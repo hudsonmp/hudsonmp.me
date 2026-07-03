@@ -17,12 +17,31 @@ const { frontmatter } = Astro.props;
 </html>
 
 <style is:global>
-  .layout { display: flex; gap: 3rem; align-items: flex-start; max-width: 1200px; margin: 0 auto; }
-  .left { flex: 1 1 50%; }
-  .right { flex: 1 1 50%; position: sticky; top: 2rem; }
-  .right img { width: 100%; display: block; border-radius: 10px; }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas: "text photo" "text links";
+    gap: 3rem;
+    align-items: start;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .left { grid-area: text; }
+  .photo { grid-area: photo; position: sticky; top: 2rem; }
+  .photo img {
+    width: 280px;
+    max-width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+    border-radius: 10px;
+  }
+  .right { grid-area: links; }
   @media (max-width: 700px) {
-    .layout { flex-direction: column; }
-    .right { flex-basis: auto; position: static; }
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-areas: "photo" "text" "links";
+    }
+    .photo { position: static; }
   }
 </style>
