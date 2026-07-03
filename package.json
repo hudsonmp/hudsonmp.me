@@ -1,0 +1,14 @@
+{
+  "name": "hudsonmp",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^7.0.2",
+    "astro": "^7.0.3"
+  }
+}
