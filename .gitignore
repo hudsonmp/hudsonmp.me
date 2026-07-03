@@ -2,3 +2,5 @@ dev.json
 .astro
 node_modules
 dist
+.vercel
+.env*
