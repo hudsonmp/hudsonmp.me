@@ -1,23 +1,73 @@
 ---
 import '../styles/global.css';
-const { frontmatter } = Astro.props;
+// MDX pages pass `frontmatter`; .astro pages pass `title`.
+// `fill` makes the left column exactly the available height (used by the editor).
+const { frontmatter, title: titleProp, fill = false } = Astro.props;
+const title = titleProp ?? frontmatter?.title;
+const hasToc = Astro.slots.has('toc');
 ---
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{frontmatter.title}</title>
+    <title>{title}</title>
+    <slot name="head" />
   </head>
   <body>
     <header class="site-header">
       <a href="/">hudson c. mitchell-pullman</a>
     </header>
-    <slot />
+    <div class:list={['layout', { 'has-toc': hasToc }]}>
+      <div class:list={['left', { fill }]}><slot /></div>
+      <aside class="right">
+        <nav class="site-nav">
+          <a href="/">home</a>
+          <a href="/essays">essays</a>
+          <a href="/readings">readings</a>
+        </nav>
+        <slot name="toc" />
+      </aside>
+    </div>
+    <script>
+      // external links open in a new tab; internal pages (home, essays, readings, header) and mailto stay in place
+      document.querySelectorAll<HTMLAnchorElement>('a[href^="http"]').forEach((a) => {
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+      });
+
+      // clicking a mailto link also copies the address; the mailto still opens
+      document.querySelectorAll<HTMLAnchorElement>('a[href^="mailto:"]').forEach((a) => {
+        a.addEventListener('click', async () => {
+          const address = a.getAttribute('href')!.replace(/^mailto:/, '');
+          try {
+            await navigator.clipboard.writeText(address);
+          } catch {
+            return;
+          }
+          a.classList.add('copied');
+          setTimeout(() => a.classList.remove('copied'), 1500);
+        });
+      });
+    </script>
   </body>
 </html>
 
 <style is:global>
+  /* app-shell: the viewport never scrolls. header and sidebar stay put; only .left scrolls, and only if it overflows. */
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    margin: 0;
+    padding: 8px 40px 0;
+    box-sizing: border-box;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
   .site-header {
+    flex: none;
     text-align: center;
   }
   .site-header a {
@@ -25,18 +75,42 @@ const { frontmatter } = Astro.props;
     text-decoration: none;
     font-weight: bold;
   }
+
   .layout {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 280px min-content;
-    grid-template-areas: "text photo" "text links";
+    grid-template-columns: minmax(0, 1fr) 140px;
+    grid-template-areas: "text nav";
     gap: 3rem;
+    grid-template-rows: minmax(0, 1fr);
     align-items: start;
-    max-width: 1200px;
+    width: 100%;
+    max-width: 760px;
     margin: 0 auto;
+    flex: 1;
+    min-height: 0;
   }
-  .left { grid-area: text; }
-  .photo { grid-area: photo; position: sticky; top: 2rem; }
+  .left {
+    grid-area: text;
+    max-height: 100%;
+    box-sizing: border-box; /* the bottom padding must not push the column past the viewport */
+    overflow-y: auto;
+    padding-bottom: 1rem;
+  }
+  /* scroll without native scrollbars */
+  .layout,
+  .layout * { scrollbar-width: none; }
+  .layout ::-webkit-scrollbar,
+  .layout::-webkit-scrollbar { display: none; }
+
+  .left.fill {
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .left h3 { margin-bottom: 0.25em; }
+  .left .more { line-height: 1.2; }
+
   .photo img {
     width: 280px;
     max-width: 100%;
@@ -44,13 +118,78 @@ const { frontmatter } = Astro.props;
     object-fit: cover;
     display: block;
   }
-  .right { grid-area: links; }
+
+  .right {
+    grid-area: nav;
+    align-self: stretch;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .site-nav {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.4em;
+  }
+
+  /* pages with a table of contents get a wider sidebar; the nav stays on top, the toc scrolls beneath it */
+  .layout.has-toc {
+    max-width: 980px;
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+
+  /* link callout: shows the destination on hover/focus; the pseudo-element sits inside the link, so it stays clickable.
+     mailto links carry an obfuscated data-callout; every other link shows its href. */
+  .left a {
+    position: relative;
+  }
+  .left a::after {
+    content: attr(href);
+    position: absolute;
+    left: 0;
+    top: calc(100% + 0.4em);
+    padding: 0.25em 0.7em;
+    background: #fff;
+    border: 0.5px solid #000;
+    font-size: 0.8em;
+    white-space: nowrap;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+    z-index: 10;
+  }
+  .left a[data-callout]::after {
+    content: attr(data-callout);
+  }
+  /* invisible bridge so the pointer can travel from the link onto the callout */
+  .left a::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: 0.5em;
+  }
+  .left a:hover::after,
+  .left a:focus-visible::after {
+    visibility: visible;
+    opacity: 1;
+  }
+  .left a.copied::after {
+    content: "copied!";
+    visibility: visible;
+    opacity: 1;
+  }
+
+  /* mobile: keep the sidebar on the right, just narrower */
   @media (max-width: 700px) {
-    .layout {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto auto auto;
-      grid-template-areas: "photo" "text" "links";
+    .layout,
+    .layout.has-toc {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 1rem;
     }
-    .photo { position: static; }
+    .toc { display: none; }
   }
 </style>

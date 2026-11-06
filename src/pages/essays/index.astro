@@ -1,0 +1,20 @@
+---
+import Base from '../../layouts/Base.astro';
+import { parseFrontmatter } from '../../lib/essay';
+
+const files = import.meta.glob('/src/essays/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const essays = Object.entries(files)
+  .map(([path, src]) => {
+    const slug = path.split('/').pop()!.replace(/\.md$/, '');
+    const { meta } = parseFrontmatter(src);
+    return { slug, title: meta.title || slug, date: meta.date || '' };
+  })
+  .sort((a, b) => b.date.localeCompare(a.date) || a.slug.localeCompare(b.slug));
+---
+<Base title="essays">
+  {essays.length > 0 && (
+    <ul class="essay-list">
+      {essays.map((e) => <li><a href={`/essays/${e.slug}`}>{e.title}</a></li>)}
+    </ul>
+  )}
+</Base>

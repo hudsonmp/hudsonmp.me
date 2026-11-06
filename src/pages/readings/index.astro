@@ -1,0 +1,11 @@
+---
+import Base from '../../layouts/Base.astro';
+import { loadReadings } from '../../lib/readings';
+
+const readings = loadReadings();
+---
+<Base title="readings">
+  <ul class="readings">
+    {readings.map((r) => <li><a href={r.url}>{r.title}</a></li>)}
+  </ul>
+</Base>

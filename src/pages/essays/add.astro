@@ -1,0 +1,608 @@
+---
+import Base from '../../layouts/Base.astro';
+import '../../styles/essay.css';
+import '../../styles/editor.css';
+---
+<Base title="add essay" fill>
+  <meta slot="head" name="robots" content="noindex, nofollow" />
+
+  <form id="gate" autocomplete="off">
+    <input id="pw" type="password" placeholder="password" aria-label="password" autofocus />
+    <span id="gate-err" role="alert"></span>
+  </form>
+
+  <div id="editor" hidden>
+    <div class="bar">
+      <span class="tabs">
+        <button type="button" id="tab-edit" class="on">edit</button>
+        <button type="button" id="tab-preview">preview</button>
+      </span>
+      <span class="actions">
+        <button type="button" id="copy">copy .md</button>
+        <button type="button" id="download">download .md</button>
+        <button type="button" id="open-publish">publish</button>
+      </span>
+    </div>
+
+    <div id="publish-panel" hidden>
+      <label class="slug-row">
+        <span class="prefix">hudsonmp.me/essays/</span><input id="slug" type="text" spellcheck="false" autocomplete="off" aria-label="slug" />
+      </label>
+      <button type="button" id="do-publish">publish</button>
+      <button type="button" id="cancel-publish">cancel</button>
+      <p id="publish-status" role="status"></p>
+    </div>
+
+    <div id="pane-edit" class="pane">
+      <input id="title" type="text" placeholder="title" spellcheck="true" autocomplete="off" />
+      <textarea id="md" spellcheck="true" autocapitalize="off" placeholder="paste markdown or rich text (Google Docs keeps headings, quotes, links, images, lists). drop or paste images. # section, ## subsection. ⌘B bold · ⌘I italic · ⌘K link · ⌘E code · ⌘⇧X strike · ⌘⌥1–3 heading · ⌘⇧V plain paste"></textarea>
+    </div>
+
+    <div id="preview" class="pane" hidden>
+      <article>
+        <h1 class="essay-title" id="pv-title"></h1>
+        <p class="essay-date" id="pv-date" hidden></p>
+        <details class="toc-inline" id="toc-inline-wrap" hidden>
+          <summary>contents</summary>
+          <div id="toc-inline"></div>
+        </details>
+        <div class="essay-body" id="pv-body"></div>
+      </article>
+    </div>
+
+    <p class="hint" id="hint" role="status"></p>
+  </div>
+
+  <div slot="toc" class="toc" id="toc"></div>
+</Base>
+
+<style is:global>
+  #slug {
+    font: inherit;
+    font-size: 0.8em;
+    padding: 0.3em 0.5em;
+    border: 0.5px solid #000;
+    border-radius: 0;
+    background: #fff;
+    outline: none;
+  }
+
+  #editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #editor[hidden] { display: none; }
+  #editor .bar {
+    flex: none;
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75em;
+    margin-bottom: 0.6em;
+  }
+  #editor button {
+    font: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin-right: 1em;
+    color: #888;
+    cursor: pointer;
+  }
+  #editor button:hover,
+  #editor button.on { color: #000; }
+  #editor button:disabled { color: #ccc; cursor: default; }
+  #editor .actions button { margin: 0 0 0 1em; }
+  #editor .tabs button.on { text-decoration: underline; }
+
+  #publish-panel {
+    flex: none;
+    font-size: 0.75em;
+    margin-bottom: 0.8em;
+    padding: 0.6em 0.7em;
+    border: 0.5px solid #000;
+  }
+  #publish-panel[hidden] { display: none; }
+  #publish-panel .slug-row { display: inline-flex; align-items: baseline; margin-right: 1em; }
+  #publish-panel .prefix { color: #888; }
+  #slug { font-size: 1em; padding: 0.15em 0.35em; width: 16em; }
+  #publish-panel #do-publish { color: #000; text-decoration: underline; }
+  #publish-status { margin: 0.5em 0 0; color: #888; min-height: 1.2em; }
+  #publish-status a { color: #000; }
+
+  #editor .pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #editor .pane[hidden] { display: none; }
+  #preview { overflow-y: auto; padding-bottom: 1rem; display: block; }
+  #preview[hidden] { display: none; }
+
+  #title,
+  #md {
+    font: inherit;
+    width: 100%;
+    box-sizing: border-box;
+    border: 0.5px solid #000;
+    border-radius: 0;
+    background: #fff;
+    outline: none;
+    padding: 0.5em 0.6em;
+  }
+  #title { flex: none; font-size: 1em; margin-bottom: 0.5em; }
+  #md {
+    flex: 1;
+    min-height: 0;
+    resize: none;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.65em;
+    line-height: 1.5;
+  }
+  #md.dragover { border-style: dashed; }
+  #editor .hint { flex: none; margin: 0.4em 0 0; font-size: 0.6em; color: #888; min-height: 1.2em; }
+</style>
+
+<script>
+  import { renderEssay, parseFrontmatter } from '../../lib/essay';
+  import { tocHtml, mountToc } from '../../lib/toc';
+  import { htmlToMarkdown, hasStructure } from '../../lib/html2md';
+  import { saveAsset, loadAssets, assetUrl, getAsset, referencedAssets, blobToBase64, isSupportedImage } from '../../lib/assets';
+  import { gate } from '../../lib/gate';
+
+  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const editor = $('editor');
+  const store = {
+    get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch {} },
+  };
+  let key = ''; // the password, sent with publish/fetch requests so the dev server can re-check it
+
+  // ---- editor ---------------------------------------------------------------------------------------------------
+  const title = $<HTMLInputElement>('title');
+  const md = $<HTMLTextAreaElement>('md');
+  const hint = $('hint');
+
+  function note(s: string, ms = 5000) {
+    hint.textContent = s;
+    if (ms) setTimeout(() => { if (hint.textContent === s) hint.textContent = ''; }, ms);
+  }
+
+  title.value = store.get('essay-draft-title') ?? '';
+  md.value = store.get('essay-draft-md') ?? '';
+  let saveTimer = 0;
+  const saveDraft = () => {
+    clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(() => {
+      store.set('essay-draft-title', title.value);
+      store.set('essay-draft-md', md.value);
+    }, 300);
+  };
+  title.addEventListener('input', saveDraft);
+  md.addEventListener('input', saveDraft);
+
+  // Replace [start,end) with text through execCommand so native undo/redo keeps working; fall back to setRangeText.
+  function replace(start: number, end: number, text: string, selStart: number, selEnd = selStart) {
+    md.focus();
+    md.setSelectionRange(start, end);
+    if (!document.execCommand('insertText', false, text)) {
+      md.setRangeText(text, start, end, 'end');
+      md.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    md.setSelectionRange(selStart, selEnd);
+  }
+
+  /** Insert a block (image, pasted document) with blank lines around it. */
+  function insertBlock(text: string) {
+    const { selectionStart: s, selectionEnd: e, value: v } = md;
+    const before = v.slice(0, s);
+    const after = v.slice(e);
+    const lead = !before || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+    const trail = !after || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
+    const ins = lead + text + trail;
+    replace(s, e, ins, s + lead.length + text.length);
+  }
+
+  function wrap(before: string, after = before, opts: { single?: boolean } = {}) {
+    const { selectionStart: s, selectionEnd: e, value: v } = md;
+    const sel = v.slice(s, e);
+    const outer = (n: number, side: 'l' | 'r') => (side === 'l' ? v.slice(s - n, s) : v.slice(e, e + n));
+    // `*` must not be confused with the `**` of bold when toggling italic
+    const notBold = !opts.single || (v[s - before.length - 1] !== before[0] && v[e + after.length] !== after[0]);
+    if (s >= before.length && outer(before.length, 'l') === before && outer(after.length, 'r') === after && notBold) {
+      replace(s - before.length, e + after.length, sel, s - before.length, s - before.length + sel.length);
+    } else if (sel.length >= before.length + after.length && sel.startsWith(before) && sel.endsWith(after)) {
+      const inner = sel.slice(before.length, sel.length - after.length);
+      replace(s, e, inner, s, s + inner.length);
+    } else {
+      replace(s, e, before + sel + after, s + before.length, s + before.length + sel.length);
+    }
+  }
+
+  function link() {
+    const { selectionStart: s, selectionEnd: e, value: v } = md;
+    const sel = v.slice(s, e);
+    if (!sel) replace(s, e, '[]()', s + 1);
+    else if (/^https?:\/\/\S+$/i.test(sel)) replace(s, e, `[](${sel})`, s + 1); // selected a URL: caret goes in the label
+    else replace(s, e, `[${sel}]()`, s + sel.length + 3); // selected text: caret goes in the url
+  }
+
+  function heading(level: number) {
+    const { selectionStart: s, value: v } = md;
+    const ls = v.lastIndexOf('\n', s - 1) + 1;
+    let le = v.indexOf('\n', s);
+    if (le === -1) le = v.length;
+    const line = v.slice(ls, le);
+    const m = line.match(/^(#{1,6})\s+/);
+    const text = m ? line.slice(m[0].length) : line;
+    const next = m && m[1].length === level ? text : '#'.repeat(level) + ' ' + text;
+    replace(ls, le, next, ls + next.length);
+  }
+
+  // Enter continues "- ", "* ", "1. " lists; Enter on an empty item ends the list.
+  function continueList(e: KeyboardEvent) {
+    const { selectionStart: s, selectionEnd: end, value: v } = md;
+    if (s !== end) return;
+    const ls = v.lastIndexOf('\n', s - 1) + 1;
+    const m = v.slice(ls, s).match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+    if (!m || v.slice(s).split('\n')[0].length) return; // only at end of a list line
+    e.preventDefault();
+    if (!m[3]) { replace(ls, s, '', ls); return; }
+    const marker = /\d/.test(m[2]) ? `${parseInt(m[2], 10) + 1}.` : m[2];
+    const ins = `\n${m[1]}${marker} `;
+    replace(s, s, ins, s + ins.length);
+  }
+
+  let plainPaste = false;
+  md.addEventListener('keydown', (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    plainPaste = mod && e.shiftKey && e.key.toLowerCase() === 'v';
+    if (!mod) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.altKey) continueList(e);
+      return;
+    }
+    const k = e.key.toLowerCase();
+    if (e.altKey && /^Digit[1-6]$/.test(e.code)) { e.preventDefault(); heading(+e.code.slice(5)); }
+    else if (!e.altKey && !e.shiftKey && k === 'b') { e.preventDefault(); wrap('**'); }
+    else if (!e.altKey && !e.shiftKey && k === 'i') { e.preventDefault(); wrap('*', '*', { single: true }); }
+    else if (!e.altKey && !e.shiftKey && k === 'k') { e.preventDefault(); link(); }
+    else if (!e.altKey && !e.shiftKey && k === 'e') { e.preventDefault(); wrap('`'); }
+    else if (!e.altKey && e.shiftKey && k === 'x') { e.preventDefault(); wrap('~~'); }
+  });
+
+  // ---- images: pasted/dropped files and images inside pasted documents become real files ----------------------
+  async function blobFromUrl(src: string): Promise<Blob | null> {
+    try {
+      const r = await fetch(src, { mode: 'cors', credentials: 'omit' });
+      const b = await r.blob();
+      if (r.ok && isSupportedImage(b.type)) return b;
+    } catch { /* CORS or network: fall through to the local server */ }
+    if (src.startsWith('data:')) return null;
+    try {
+      const r = await fetch('/__essays/fetch', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ key, url: src }),
+      });
+      const b = await r.blob();
+      if (r.ok && isSupportedImage(b.type)) return b;
+    } catch { /* not on the dev server */ }
+    return null;
+  }
+
+  const IMG = /!\[([^\]]*)\]\((<[^>]+>|[^)\s]+)([^)]*)\)/g;
+
+  /** Replace every non-asset image source in `text` with a stored asset. */
+  async function importImages(text: string): Promise<{ text: string; failed: number; imported: number }> {
+    const srcs = [...new Set([...text.matchAll(IMG)].map((m) => m[2].replace(/^<|>$/g, '')))].filter((s) => !s.startsWith('asset:'));
+    const map = new Map<string, string>();
+    let failed = 0;
+    await Promise.all(srcs.map(async (src) => {
+      const blob = await blobFromUrl(src);
+      if (blob) map.set(src, await saveAsset(blob));
+      else failed++;
+    }));
+    const out = text.replace(IMG, (all, alt, raw, rest) => {
+      const name = map.get(raw.replace(/^<|>$/g, ''));
+      return name ? `![${alt}](asset:${name}${rest})` : all;
+    });
+    return { text: out, failed, imported: map.size };
+  }
+
+  async function insertImageFiles(files: File[]) {
+    const imgs = files.filter((f) => f.type.startsWith('image/'));
+    if (!imgs.length) return false;
+    const refs: string[] = [];
+    for (const f of imgs) {
+      let blob: Blob = f;
+      if (!isSupportedImage(f.type)) {
+        // e.g. HEIC/TIFF: re-encode through a canvas so the site can serve it
+        try {
+          const bmp = await createImageBitmap(f);
+          const c = new OffscreenCanvas(bmp.width, bmp.height);
+          c.getContext('2d')!.drawImage(bmp, 0, 0);
+          blob = await c.convertToBlob({ type: 'image/png' });
+        } catch { note(`can't use ${f.type || 'that file'}`); continue; }
+      }
+      refs.push(`![](asset:${await saveAsset(blob)})`);
+    }
+    if (refs.length) { insertBlock(refs.join('\n\n')); note(`added ${refs.length} image${refs.length > 1 ? 's' : ''}`); }
+    return true;
+  }
+
+  /** Plain text with one paragraph per line (Docs/Notes as plain text) -> markdown paragraphs. */
+  function normalizePlain(text: string): string | null {
+    if (!text.includes('\n') || text.includes('\n\n')) return null;
+    const lines = text.split('\n');
+    const isItem = (l: string) => /^\s*([-*+]|\d+[.)])\s/.test(l);
+    const isRow = (l: string) => /^\s*\|/.test(l);
+    let fence = false;
+    let out = '';
+    lines.forEach((l, i) => {
+      if (i) {
+        const p = lines[i - 1];
+        const tight = fence || (isItem(p) && isItem(l)) || (isRow(p) && isRow(l)) || /^\s*>/.test(p) && /^\s*>/.test(l);
+        out += tight ? '\n' : '\n\n';
+      }
+      if (/^\s*(```|~~~)/.test(l)) fence = !fence;
+      out += l;
+    });
+    return out.trim();
+  }
+
+  md.addEventListener('paste', async (e) => {
+    const dt = e.clipboardData;
+    if (!dt) return;
+    if (plainPaste) { plainPaste = false; return; } // ⌘⇧V: browser's plain paste, untouched
+
+    const files = [...dt.files];
+    const html = dt.getData('text/html');
+    const text = dt.getData('text/plain').replace(/\r\n?/g, '\n');
+    const { selectionStart: s, selectionEnd: end, value: v } = md;
+
+    // a bare image (screenshot, copied image) with no document around it
+    if (files.some((f) => f.type.startsWith('image/')) && !(html && hasStructure(html) && text.trim())) {
+      e.preventDefault();
+      await insertImageFiles(files);
+      return;
+    }
+    // URL pasted over selected text -> link
+    if (/^https?:\/\/\S+$/i.test(text.trim()) && s !== end) {
+      e.preventDefault();
+      replace(s, end, `[${v.slice(s, end)}](${text.trim()})`, s + end - s + text.trim().length + 4);
+      return;
+    }
+    if (html && hasStructure(html)) {
+      const converted = htmlToMarkdown(html);
+      if (converted.trim()) {
+        e.preventDefault();
+        const pending = /!\[[^\]]*\]\((?!asset:)/.test(converted);
+        if (pending) note('importing images…', 0);
+        const { text: out, failed, imported } = pending ? await importImages(converted) : { text: converted, failed: 0, imported: 0 };
+        md.setSelectionRange(s, end);
+        insertBlock(out);
+        saveDraft();
+        note(
+          'converted rich text to markdown' +
+          (imported ? ` · ${imported} image${imported > 1 ? 's' : ''} saved` : '') +
+          (failed ? ` · ${failed} image${failed > 1 ? 's' : ''} couldn't be downloaded (kept as links)` : ''),
+        );
+        return;
+      }
+    }
+    const para = normalizePlain(text);
+    if (para !== null) {
+      e.preventDefault();
+      replace(s, end, para, s + para.length);
+      note('added paragraph breaks');
+    }
+  });
+
+  md.addEventListener('dragover', (e) => {
+    if ([...(e.dataTransfer?.items ?? [])].some((i) => i.kind === 'file')) { e.preventDefault(); md.classList.add('dragover'); }
+  });
+  md.addEventListener('dragleave', () => md.classList.remove('dragover'));
+  md.addEventListener('drop', async (e) => {
+    md.classList.remove('dragover');
+    const files = [...(e.dataTransfer?.files ?? [])];
+    if (!files.some((f) => f.type.startsWith('image/'))) return;
+    e.preventDefault();
+    await insertImageFiles(files);
+  });
+
+  // ---- preview --------------------------------------------------------------------------------------------------
+  const tabEdit = $('tab-edit');
+  const tabPreview = $('tab-preview');
+  const paneEdit = $('pane-edit');
+  const preview = $('preview');
+  const toc = $('toc');
+  const tocInline = $('toc-inline');
+  const tocInlineWrap = $('toc-inline-wrap');
+  let unmount: Array<() => void> = [];
+
+  const resolveImage = (src: string) => (src.startsWith('asset:') ? assetUrl(src.slice(6)) : src);
+
+  function renderPreview() {
+    const essay = renderEssay(md.value, title.value.trim(), { resolveImage });
+    $('pv-title').textContent = essay.title;
+    $('pv-title').hidden = !essay.title;
+    $('pv-date').textContent = essay.date;
+    $('pv-date').hidden = !essay.date;
+    $('pv-body').innerHTML = essay.html;
+    const t = tocHtml(essay.headings);
+    toc.innerHTML = t;
+    tocInline.innerHTML = t;
+    tocInlineWrap.hidden = !t;
+    unmount.forEach((u) => u());
+    unmount = [mountToc(preview, toc), mountToc(preview, tocInline)];
+  }
+
+  function show(which: 'edit' | 'preview') {
+    const p = which === 'preview';
+    paneEdit.hidden = p;
+    preview.hidden = !p;
+    tabEdit.classList.toggle('on', !p);
+    tabPreview.classList.toggle('on', p);
+    if (p) { preview.scrollTop = 0; renderPreview(); }
+    else { unmount.forEach((u) => u()); unmount = []; toc.innerHTML = ''; md.focus(); }
+  }
+  tabEdit.addEventListener('click', () => show('edit'));
+  tabPreview.addEventListener('click', () => show('preview'));
+
+  // ---- export ---------------------------------------------------------------------------------------------------
+  const slugify = (s: string) => s.toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).replace(/-+$/, '');
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  function parts() {
+    const { meta, body } = parseFrontmatter(md.value);
+    return { title: (meta.title || title.value).trim(), date: meta.date || today(), body: body.replace(/^\s+/, '') };
+  }
+
+  /** Self-contained .md for copy/download: assets become data URIs. */
+  async function exportText() {
+    const p = parts();
+    let body = p.body;
+    for (const name of referencedAssets(body)) {
+      const a = getAsset(name);
+      if (a) body = body.replaceAll(`asset:${name}`, `data:${a.type};base64,${await blobToBase64(a.blob)}`);
+    }
+    return { slug: slugify(p.title) || 'untitled', text: `---\ntitle: ${p.title}\ndate: ${p.date}\n---\n\n${body}` };
+  }
+
+  $('copy').addEventListener('click', async () => {
+    const { text } = await exportText();
+    try { await navigator.clipboard.writeText(text); note('copied'); }
+    catch { note('clipboard blocked: use download .md'); }
+  });
+  $('download').addEventListener('click', async () => {
+    const { slug, text } = await exportText();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }));
+    a.download = `${slug}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    note('downloaded');
+  });
+
+  // ---- publish (local dev server writes src/essays/<slug>.md + public/essays/<slug>/*) -----------------------
+  const panel = $('publish-panel');
+  const slugInput = $<HTMLInputElement>('slug');
+  const doPublish = $<HTMLButtonElement>('do-publish');
+  const status = $('publish-status');
+  const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+  const PENDING = 'essay-publish-pending';
+  let exists = false;
+  let checkTimer = 0;
+
+  async function checkSlug() {
+    const slug = slugInput.value;
+    exists = false;
+    doPublish.textContent = 'publish';
+    if (!SLUG.test(slug)) { status.textContent = 'lowercase letters, numbers and dashes only'; doPublish.disabled = true; return; }
+    if (slug === 'add' || slug === 'index') { status.textContent = `"${slug}" is reserved`; doPublish.disabled = true; return; }
+    doPublish.disabled = false;
+    try {
+      const r = await fetch(`/__essays/check?slug=${encodeURIComponent(slug)}`);
+      if (r.status === 404) { status.textContent = 'publishing only works on the local dev server (npm run dev)'; doPublish.disabled = true; return; }
+      const j = await r.json();
+      if (slugInput.value !== slug) return;
+      exists = !!j.exists;
+      status.textContent = exists ? 'an essay already lives here, publishing will replace it' : 'new page';
+      doPublish.textContent = exists ? 'replace' : 'publish';
+    } catch {
+      status.textContent = 'publishing only works on the local dev server (npm run dev)';
+      doPublish.disabled = true;
+    }
+  }
+
+  $('open-publish').addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    if (panel.hidden) return;
+    slugInput.value = slugify(parts().title);
+    checkSlug();
+    slugInput.focus();
+    slugInput.select();
+  });
+  $('cancel-publish').addEventListener('click', () => { panel.hidden = true; });
+  slugInput.addEventListener('input', () => {
+    const pos = slugInput.selectionStart;
+    slugInput.value = slugInput.value.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    slugInput.setSelectionRange(pos, pos);
+    clearTimeout(checkTimer);
+    checkTimer = window.setTimeout(checkSlug, 200);
+  });
+  slugInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doPublish.click(); } });
+
+  doPublish.addEventListener('click', async () => {
+    const p = parts();
+    const slug = slugInput.value;
+    if (!p.title) { status.textContent = 'add a title first'; title.focus(); return; }
+    if (!p.body.trim()) { status.textContent = 'nothing to publish yet'; return; }
+
+    // images that are still remote links: try once more to turn them into files
+    let body = p.body;
+    if (/!\[[^\]]*\]\((?!asset:)(?!\/)/.test(body)) {
+      status.textContent = 'downloading images…';
+      const r = await importImages(body);
+      if (r.imported) { md.value = md.value.replace(p.body, () => r.text); saveDraft(); }
+      body = r.text;
+      if (r.failed) { status.textContent = `${r.failed} image${r.failed > 1 ? 's' : ''} couldn't be downloaded; remove or replace ${r.failed > 1 ? 'them' : 'it'} first`; return; }
+    }
+    const names = referencedAssets(body);
+    const missing = names.filter((n) => !getAsset(n));
+    if (missing.length) { status.textContent = `missing image data: ${missing.join(', ')}`; return; }
+
+    doPublish.disabled = true;
+    status.textContent = 'publishing…';
+    // writing into src/ makes the dev server reload this page, sometimes before the response lands;
+    // remember the attempt so the result can be shown after the reload
+    try { sessionStorage.setItem(PENDING, JSON.stringify({ slug, at: Date.now() })); } catch {}
+    let published = false;
+    try {
+      const assets = await Promise.all(names.map(async (n) => {
+        const a = getAsset(n)!;
+        return { name: n, type: a.type, data: await blobToBase64(a.blob) };
+      }));
+      const r = await fetch('/__essays/publish', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ key, slug, title: p.title, date: p.date, body, assets, overwrite: exists }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 409) { exists = true; doPublish.textContent = 'replace'; status.textContent = 'an essay already lives here, click replace to overwrite it'; return; }
+      if (!r.ok) { status.textContent = j.error ?? `failed (${r.status})`; return; }
+      published = true;
+      try { sessionStorage.setItem(PENDING, JSON.stringify({ slug, at: Date.now() })); } catch {}
+      showPublished(slug);
+    } catch {
+      status.textContent = 'publishing only works on the local dev server (npm run dev)';
+    } finally {
+      if (!published) try { sessionStorage.removeItem(PENDING); } catch {}
+      doPublish.disabled = false;
+    }
+  });
+
+  function showPublished(slug: string) {
+    panel.hidden = false;
+    slugInput.value = slug;
+    status.innerHTML = '';
+    status.append('published: ');
+    const a = document.createElement('a');
+    a.href = `/essays/${slug}`;
+    a.textContent = `hudsonmp.me/essays/${slug}`;
+    status.append(a, ' (written to src/essays + public/essays; commit and deploy to put it live)');
+    exists = true;
+    doPublish.textContent = 'replace';
+  }
+
+  async function resumePending() {
+    let p: { slug: string; at: number } | null = null;
+    try { p = JSON.parse(sessionStorage.getItem(PENDING) ?? 'null'); sessionStorage.removeItem(PENDING); } catch {}
+    if (!p || Date.now() - p.at > 60_000) return;
+    try {
+      const r = await fetch(`/__essays/check?slug=${encodeURIComponent(p.slug)}`);
+      if (r.ok && (await r.json()).exists) showPublished(p.slug);
+    } catch {}
+  }
+
+  // ---- start ----------------------------------------------------------------------------------------------------
+  (async () => {
+    await loadAssets();
+    key = await gate();
+    editor.hidden = false;
+    md.focus();
+    resumePending();
+  })();
+</script>

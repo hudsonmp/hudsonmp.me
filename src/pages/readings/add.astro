@@ -1,0 +1,178 @@
+---
+import Base from '../../layouts/Base.astro';
+import { loadReadings } from '../../lib/readings';
+import '../../styles/editor.css';
+
+const readings = loadReadings();
+---
+<Base title="edit readings">
+  <meta slot="head" name="robots" content="noindex, nofollow" />
+
+  <form id="gate" autocomplete="off">
+    <input id="pw" type="password" placeholder="password" aria-label="password" autofocus />
+    <span id="gate-err" role="alert"></span>
+  </form>
+
+  <div id="readings-editor" hidden>
+    <form id="add-form" autocomplete="off">
+      <input id="r-url" class="editor-input" type="url" placeholder="link" aria-label="link" />
+      <input id="r-title" class="editor-input" type="text" placeholder="title" aria-label="title" spellcheck="true" />
+      <button type="submit" class="text-button" id="r-add">add</button>
+    </form>
+    <p id="r-status" role="status"></p>
+    <ul id="r-list"></ul>
+  </div>
+
+  <script type="application/json" id="r-initial" set:html={JSON.stringify(readings)} />
+</Base>
+
+<style is:global>
+  #add-form { display: flex; gap: 0.5em; align-items: baseline; margin-top: 0.2em; }
+  #r-url { flex: 1.2; min-width: 0; }
+  #r-title { flex: 1; min-width: 0; }
+  #add-form .text-button { font-size: 0.8em; color: #000; text-decoration: underline; }
+  #r-status { font-size: 0.65em; color: #888; min-height: 1.2em; margin: 0.4em 0 0.6em; }
+  #r-status button { font-size: 1em; color: #000; text-decoration: underline; }
+  #r-list { padding-left: 1.2em; margin: 0; }
+  #r-list li { margin: 0.1em 0; }
+  #r-list .remove { font-size: 0.6em; margin-left: 0.6em; visibility: hidden; }
+  #r-list li:hover .remove,
+  #r-list .remove:focus-visible { visibility: visible; }
+  @media (hover: none) { #r-list .remove { visibility: visible; } }
+</style>
+
+<script>
+  import { gate } from '../../lib/gate';
+
+  type Reading = { title: string; url: string };
+
+  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const editor = $('readings-editor');
+  const form = $<HTMLFormElement>('add-form');
+  const urlIn = $<HTMLInputElement>('r-url');
+  const titleIn = $<HTMLInputElement>('r-title');
+  const status = $('r-status');
+  const list = $('r-list');
+
+  let items: Reading[] = JSON.parse($('r-initial').textContent || '[]');
+  let key = '';
+
+  function say(text: string, undo?: () => void) {
+    status.textContent = text;
+    if (undo) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'text-button';
+      b.textContent = 'undo';
+      b.addEventListener('click', undo, { once: true });
+      status.append(' · ', b);
+    }
+  }
+
+  function render() {
+    list.replaceChildren(
+      ...items.map((r, i) => {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.href = r.url;
+        a.textContent = r.title;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'text-button remove';
+        rm.textContent = 'remove';
+        rm.setAttribute('aria-label', `remove ${r.title}`);
+        rm.addEventListener('click', () => remove(i));
+        li.append(a, rm);
+        return li;
+      }),
+    );
+  }
+
+  /** Persist the whole list; on failure the previous list is restored. */
+  async function save(next: Reading[], previous: Reading[]): Promise<boolean> {
+    items = next;
+    render();
+    try {
+      const r = await fetch('/__readings/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ key, items: next }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(r.status === 404 ? 'local' : j.error ?? `failed (${r.status})`);
+      items = j.items;
+      render();
+      return true;
+    } catch (e) {
+      items = previous;
+      render();
+      const msg = (e as Error).message;
+      say(msg === 'local' || msg === 'Failed to fetch' ? 'editing only works on the local dev server (npm run dev); commit + deploy to put changes live' : msg);
+      return false;
+    }
+  }
+
+  async function remove(i: number) {
+    const previous = items;
+    const gone = items[i];
+    if (await save(items.filter((_, j) => j !== i), previous)) {
+      say(`removed "${gone.title}"`, async () => {
+        const restored = [...items];
+        restored.splice(Math.min(i, restored.length), 0, gone);
+        if (await save(restored, items)) say(`restored "${gone.title}"`);
+      });
+    }
+  }
+
+  // fill the title from the page when a link is entered and the title is still empty
+  let lookedUp = '';
+  async function lookupTitle() {
+    const u = urlIn.value.trim();
+    if (!/^https?:\/\/\S+$/i.test(u) || titleIn.value.trim() || u === lookedUp) return;
+    lookedUp = u;
+    titleIn.placeholder = 'looking up title…';
+    try {
+      const r = await fetch('/__readings/title', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ key, url: u }),
+      });
+      const j = await r.json();
+      if (r.ok && j.title && !titleIn.value.trim() && urlIn.value.trim() === u) {
+        titleIn.value = j.title.toLowerCase();
+        titleIn.select();
+      }
+    } catch { /* not on the dev server: type the title */ }
+    titleIn.placeholder = 'title';
+  }
+  urlIn.addEventListener('paste', () => setTimeout(lookupTitle, 0));
+  urlIn.addEventListener('change', lookupTitle);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = urlIn.value.trim();
+    const title = titleIn.value.trim();
+    if (!/^https?:\/\/\S+$/i.test(url)) { say('add a link (https://…)'); urlIn.focus(); return; }
+    if (!title) { say('add a title'); titleIn.focus(); return; }
+    if (items.some((r) => r.url === url)) { say('already on the list'); return; }
+    const previous = items;
+    if (await save([...items, { title, url }], previous)) {
+      say(`added "${title}"`, async () => {
+        if (await save(items.filter((r) => r.url !== url), items)) say(`removed "${title}"`);
+      });
+      urlIn.value = '';
+      titleIn.value = '';
+      lookedUp = '';
+      urlIn.focus();
+    }
+  });
+
+  render();
+  (async () => {
+    key = await gate();
+    editor.hidden = false;
+    urlIn.focus();
+  })();
+</script>

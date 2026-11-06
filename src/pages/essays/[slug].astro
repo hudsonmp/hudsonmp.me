@@ -1,0 +1,40 @@
+---
+import Base from '../../layouts/Base.astro';
+import { renderEssay } from '../../lib/essay';
+import { tocHtml } from '../../lib/toc';
+import '../../styles/essay.css';
+
+export function getStaticPaths() {
+  const files = import.meta.glob('/src/essays/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+  return Object.entries(files).map(([path, src]) => {
+    const slug = path.split('/').pop()!.replace(/\.md$/, '');
+    return { params: { slug }, props: { src, slug } };
+  });
+}
+
+const { src, slug } = Astro.props;
+const essay = renderEssay(src, slug);
+---
+<Base title={essay.title}>
+  <article>
+    <h1 class="essay-title">{essay.title}</h1>
+    {essay.date && <p class="essay-date">{essay.date}</p>}
+    {essay.headings.length > 0 && (
+      <details class="toc-inline">
+        <summary>contents</summary>
+        <div id="toc-inline" set:html={tocHtml(essay.headings)} />
+      </details>
+    )}
+    <div class="essay-body" set:html={essay.html} />
+  </article>
+  <div slot="toc" class="toc" id="toc" set:html={tocHtml(essay.headings)} />
+</Base>
+
+<script>
+  import { mountToc } from '../../lib/toc';
+  const root = document.querySelector<HTMLElement>('.left');
+  const toc = document.getElementById('toc');
+  const inline = document.getElementById('toc-inline');
+  if (root && toc) mountToc(root, toc);
+  if (root && inline) mountToc(root, inline);
+</script>
