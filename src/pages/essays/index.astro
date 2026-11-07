@@ -7,14 +7,22 @@ const essays = Object.entries(files)
   .map(([path, src]) => {
     const slug = path.split('/').pop()!.replace(/\.md$/, '');
     const { meta } = parseFrontmatter(src);
-    return { slug, title: meta.title || slug, date: meta.date || '' };
+    return { slug, title: meta.title || slug, date: meta.date || '', isPrivate: meta.private === 'true' };
   })
   .sort((a, b) => b.date.localeCompare(a.date) || a.slug.localeCompare(b.slug));
 ---
 <Base title="essays">
   {essays.length > 0 && (
     <ul class="essay-list">
-      {essays.map((e) => <li><a href={`/essays/${e.slug}`}>{e.title}</a></li>)}
+      {essays.map((e) => (
+        <li>
+          <a href={`/essays/${e.slug}`}>{e.title}</a>{e.isPrivate && <span class="private-tag"> (private)</span>}
+        </li>
+      ))}
     </ul>
   )}
 </Base>
+
+<style>
+  .private-tag { color: #888; }
+</style>

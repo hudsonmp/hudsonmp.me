@@ -48,16 +48,17 @@
   display: block;
   color: #888;
   text-decoration: none;
-  font-size: 0.7em;
+  font-size: 0.8em;
   line-height: 1.3;
   padding: 0.3em 0;
 }
-.toc li.d1 a { color: #444; font-size: 0.78em; padding-top: 0.55em; }
+.toc li.d1 a { color: #444; font-size: 0.9em; padding-top: 0.55em; }
 .toc li.d2 a { padding-left: 0.9em; }
-.toc li.d3 a { padding-left: 1.8em; font-size: 0.64em; }
-.toc li.d4 a { padding-left: 2.7em; font-size: 0.64em; }
+.toc li.d3 a { padding-left: 1.8em; font-size: 0.72em; }
+.toc li.d4 a { padding-left: 2.7em; font-size: 0.72em; }
 .toc a:hover { color: #000; }
 .toc a.active { color: #000; }
+.toc a.in-section { font-weight: 700; color: #000; }
 
 /* narrow screens: the sidebar is too small for the toc, so it moves to the top of the article */
 .toc-inline { display: none; }
@@ -73,4 +74,5 @@
   .toc-inline li.d3 a,
   .toc-inline li.d4 a { padding-left: 1.8em; }
   .toc-inline a.active { color: #000; }
+  .toc-inline a.in-section { font-weight: 700; color: #000; }
 }

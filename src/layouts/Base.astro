@@ -5,6 +5,8 @@ import '../styles/global.css';
 const { frontmatter, title: titleProp, fill = false } = Astro.props;
 const title = titleProp ?? frontmatter?.title;
 const hasToc = Astro.slots.has('toc');
+const path = Astro.url.pathname.replace(/\/+$/, '') || '/';
+const here = (href: string) => (href === '/' ? path === '/' : path === href || path.startsWith(href + '/'));
 ---
 <html lang="en">
   <head>
@@ -21,9 +23,9 @@ const hasToc = Astro.slots.has('toc');
       <div class:list={['left', { fill }]}><slot /></div>
       <aside class="right">
         <nav class="site-nav">
-          <a href="/">home</a>
-          <a href="/essays">essays</a>
-          <a href="/readings">readings</a>
+          <a href="/" aria-current={here('/') ? 'page' : undefined}>home</a>
+          <a href="/essays" aria-current={here('/essays') ? 'page' : undefined}>essays</a>
+          <a href="/readings" aria-current={here('/readings') ? 'page' : undefined}>readings</a>
         </nav>
         <slot name="toc" />
       </aside>
@@ -126,6 +128,9 @@ const hasToc = Astro.slots.has('toc');
     display: flex;
     flex-direction: column;
   }
+  /* sidebar nav only: the page you are on is blue, the rest are plain */
+  .site-nav a { color: #000; }
+  .site-nav a[aria-current='page'] { color: #0000ee; }
   .site-nav {
     flex: none;
     display: flex;

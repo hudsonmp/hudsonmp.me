@@ -30,6 +30,26 @@ export function mountToc(root: HTMLElement, toc: HTMLElement): () => void {
   };
   toc.addEventListener('click', onClick);
 
+  // whitespace after the last section so every heading, including the final ones, can be scrolled to the top
+  const spacer = (() => {
+    let el = root.querySelector<HTMLElement>(':scope > .toc-spacer');
+    if (!el) { el = document.createElement('div'); el.className = 'toc-spacer'; el.setAttribute('aria-hidden', 'true'); root.appendChild(el); }
+    return el;
+  })();
+  const sizeSpacer = () => {
+    if (!pairs.length) return;
+    spacer.style.height = '0px';
+    const last = pairs[pairs.length - 1].el.getBoundingClientRect().top;
+    const end = spacer.getBoundingClientRect().top;
+    // leave the last heading just below the top edge at maximum scroll (the container has its own bottom padding)
+    const pad = parseFloat(getComputedStyle(root).paddingBottom) || 0;
+    spacer.style.height = Math.max(0, root.clientHeight - (end - last) - pad - 8) + 'px';
+  };
+  sizeSpacer();
+  const ro = new ResizeObserver(() => sizeSpacer());
+  ro.observe(root);
+  window.addEventListener('load', sizeSpacer);
+
   let raf = 0;
   const update = () => {
     raf = 0;
@@ -39,7 +59,15 @@ export function mountToc(root: HTMLElement, toc: HTMLElement): () => void {
     for (const p of pairs) if (p.el.getBoundingClientRect().top <= top) active = p;
     // pinned to the bottom: the last section can never reach the top, so activate it explicitly
     if (root.scrollTop + root.clientHeight >= root.scrollHeight - 2) active = pairs[pairs.length - 1];
-    for (const p of pairs) p.a.classList.toggle('active', p === active);
+    // the top-level section containing the active entry stays bold, so you can see it while inside a subsection
+    let section = active;
+    for (let i = pairs.indexOf(active); i >= 0; i--) {
+      if (pairs[i].a.parentElement?.classList.contains('d1')) { section = pairs[i]; break; }
+    }
+    for (const p of pairs) {
+      p.a.classList.toggle('active', p === active);
+      p.a.classList.toggle('in-section', p === section);
+    }
     // keep the active entry visible inside the toc without scrolling anything else
     const tr = toc.getBoundingClientRect();
     const ar = active.a.getBoundingClientRect();
@@ -53,5 +81,7 @@ export function mountToc(root: HTMLElement, toc: HTMLElement): () => void {
   return () => {
     toc.removeEventListener('click', onClick);
     root.removeEventListener('scroll', onScroll);
+    window.removeEventListener('load', sizeSpacer);
+    ro.disconnect();
   };
 }

@@ -1,6 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
-import { renderEssay } from '../../lib/essay';
+import { renderEssay, parseFrontmatter } from '../../lib/essay';
 import { tocHtml } from '../../lib/toc';
 import '../../styles/essay.css';
 
@@ -13,28 +13,122 @@ export function getStaticPaths() {
 }
 
 const { src, slug } = Astro.props;
-const essay = renderEssay(src, slug);
+const { meta, body } = parseFrontmatter(src);
+const isPrivate = meta.private === 'true';
+// private essays ship only ciphertext; they are decrypted and rendered in the reader's browser
+const essay = isPrivate ? null : renderEssay(src, slug);
+const title = meta.title || slug;
+const date = meta.date || '';
 ---
-<Base title={essay.title}>
+<Base title={title}>
+  {isPrivate && <meta slot="head" name="robots" content="noindex" />}
   <article>
-    <h1 class="essay-title">{essay.title}</h1>
-    {essay.date && <p class="essay-date">{essay.date}</p>}
-    {essay.headings.length > 0 && (
-      <details class="toc-inline">
-        <summary>contents</summary>
-        <div id="toc-inline" set:html={tocHtml(essay.headings)} />
-      </details>
+    <h1 class="essay-title">{title}</h1>
+    {date && <p class="essay-date">{date}</p>}
+
+    {isPrivate && (
+      <form id="unlock" class="essay-unlock" autocomplete="off">
+        <p>this essay is private.</p>
+        <input id="unlock-pw" type="password" placeholder="password" aria-label="password" />
+        <span id="unlock-msg" role="status"></span>
+      </form>
+      <script is:inline>
+        // decide before first paint: a reader who already entered a password never sees the prompt flash
+        try { if (JSON.parse(localStorage.getItem('essay-reader-passwords') || '[]').length) document.getElementById('unlock').hidden = true; } catch (e) {}
+      </script>
     )}
-    <div class="essay-body" set:html={essay.html} />
+
+    <details class="toc-inline" id="toc-inline-wrap" hidden={!essay || essay.headings.length === 0}>
+      <summary>contents</summary>
+      <div id="toc-inline" set:html={essay ? tocHtml(essay.headings) : ''} />
+    </details>
+    <div class="essay-body" id="essay-body" set:html={essay ? essay.html : ''} />
   </article>
-  <div slot="toc" class="toc" id="toc" set:html={tocHtml(essay.headings)} />
+  {isPrivate && <script type="application/json" id="sealed" set:html={body.trim()} />}
+  <div slot="toc" class="toc" id="toc" set:html={essay ? tocHtml(essay.headings) : ''} />
 </Base>
+
+<style>
+  .essay-unlock p { margin: 0 0 0.4em; color: #888; font-size: 0.8em; }
+  .essay-unlock input {
+    font: inherit;
+    font-size: 0.8em;
+    padding: 0.3em 0.5em;
+    border: 0.5px solid #000;
+    border-radius: 0;
+    background: #fff;
+    outline: none;
+  }
+  #unlock-msg { margin-left: 0.8em; font-size: 0.7em; color: #888; }
+</style>
 
 <script>
   import { mountToc } from '../../lib/toc';
-  const root = document.querySelector<HTMLElement>('.left');
-  const toc = document.getElementById('toc');
-  const inline = document.getElementById('toc-inline');
-  if (root && toc) mountToc(root, toc);
-  if (root && inline) mountToc(root, inline);
+
+  const root = document.querySelector<HTMLElement>('.left')!;
+  const toc = document.getElementById('toc')!;
+  const tocInline = document.getElementById('toc-inline')!;
+  const sealedEl = document.getElementById('sealed');
+
+  if (!sealedEl) {
+    mountToc(root, toc);
+    mountToc(root, tocInline);
+  } else {
+    // Private essay: try passwords this reader already entered (any private essay), else ask.
+    // Code for decrypting/rendering is loaded only here, so public essays stay light.
+    const SAVED = 'essay-reader-passwords';
+    const form = document.getElementById('unlock') as HTMLFormElement;
+    const input = document.getElementById('unlock-pw') as HTMLInputElement;
+    const msg = document.getElementById('unlock-msg')!;
+    const payload = JSON.parse(sealedEl.textContent || '{}');
+
+    const saved = (): string[] => { try { return JSON.parse(localStorage.getItem(SAVED) ?? '[]'); } catch { return []; } };
+    const remember = (p: string) => {
+      try { localStorage.setItem(SAVED, JSON.stringify([p, ...saved().filter((x) => x !== p)].slice(0, 10))); } catch {}
+    };
+
+    const lib = Promise.all([import('../../lib/seal.js'), import('../../lib/essay'), import('../../lib/toc')]);
+
+    async function open(password: string): Promise<boolean> {
+      const [{ unseal }, { renderEssay }, { tocHtml }] = await lib;
+      const text = await unseal(payload, password);
+      if (text === null) return false;
+      const essay = renderEssay(text);
+      document.getElementById('essay-body')!.innerHTML = essay.html;
+      const t = tocHtml(essay.headings);
+      toc.innerHTML = t;
+      tocInline.innerHTML = t;
+      document.getElementById('toc-inline-wrap')!.hidden = !t;
+      form.remove();
+      mountToc(root, toc);
+      mountToc(root, tocInline);
+      return true;
+    }
+
+    (async () => {
+      const known = saved();
+      if (known.length) {
+        // the form stays hidden while saved passwords are tried; it only appears if none of them opens this essay
+        input.disabled = true;
+        for (const p of known) if (await open(p)) return;
+        input.disabled = false;
+        form.hidden = false;
+      }
+      input.focus();
+    })();
+
+    // implicit submission isn't fired by every input method; make Enter explicit
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); form.requestSubmit(); } });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const p = input.value;
+      if (!p) return;
+      msg.textContent = 'unlocking…';
+      input.disabled = true;
+      if (await open(p)) { remember(p); return; }
+      input.disabled = false;
+      msg.textContent = 'wrong password';
+      input.select();
+    });
+  }
 </script>

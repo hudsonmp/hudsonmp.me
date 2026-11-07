@@ -10,27 +10,22 @@ import '../../styles/editor.css';
     <input id="pw" type="password" placeholder="password" aria-label="password" autofocus />
     <span id="gate-err" role="alert"></span>
   </form>
+  <script is:inline>
+    // decide before first paint: a tab that already unlocked an editor never sees the password box
+    try { if (sessionStorage.getItem('site-editor-key')) document.getElementById('gate').hidden = true; } catch (e) {}
+  </script>
 
   <div id="editor" hidden>
     <div class="bar">
       <span class="tabs">
         <button type="button" id="tab-edit" class="on">edit</button>
         <button type="button" id="tab-preview">preview</button>
+        <button type="button" id="tab-publish">publish</button>
       </span>
       <span class="actions">
         <button type="button" id="copy">copy .md</button>
         <button type="button" id="download">download .md</button>
-        <button type="button" id="open-publish">publish</button>
       </span>
-    </div>
-
-    <div id="publish-panel" hidden>
-      <label class="slug-row">
-        <span class="prefix">hudsonmp.me/essays/</span><input id="slug" type="text" spellcheck="false" autocomplete="off" aria-label="slug" />
-      </label>
-      <button type="button" id="do-publish">publish</button>
-      <button type="button" id="cancel-publish">cancel</button>
-      <p id="publish-status" role="status"></p>
     </div>
 
     <div id="pane-edit" class="pane">
@@ -48,6 +43,39 @@ import '../../styles/editor.css';
         </details>
         <div class="essay-body" id="pv-body"></div>
       </article>
+    </div>
+
+    <div id="pane-publish" class="pane" hidden>
+      <section>
+        <h3>publish this draft</h3>
+        <div class="row">
+          <label class="slug-row">
+            <span class="prefix">hudsonmp.me/essays/</span><input id="slug" type="text" spellcheck="false" autocomplete="off" aria-label="slug" />
+          </label>
+          <label class="check"><input type="checkbox" id="is-private" /> private</label>
+          <button type="button" id="do-publish" class="primary">publish</button>
+        </div>
+        <p class="status" id="publish-status" role="status"></p>
+      </section>
+
+      <section>
+        <h3>essays</h3>
+        <ul id="essay-admin"></ul>
+        <p class="status" id="admin-status" role="status"></p>
+        <p class="fine">making a published essay private doesn't remove its earlier public versions from git history.</p>
+      </section>
+
+      <section>
+        <h3>passwords for private essays</h3>
+        <p class="fine">any one of these opens every private essay; readers enter it once per browser. changing them re-encrypts all private essays, so readers will need a current one.</p>
+        <ul id="pw-list"></ul>
+        <div class="row">
+          <input id="pw-new" type="text" class="field" placeholder="new password" autocomplete="off" spellcheck="false" aria-label="new password" />
+          <button type="button" id="pw-add">add</button>
+          <button type="button" id="pw-save" class="primary">save passwords</button>
+        </div>
+        <p class="status" id="pw-status" role="status"></p>
+      </section>
     </div>
 
     <p class="hint" id="hint" role="status"></p>
@@ -91,20 +119,41 @@ import '../../styles/editor.css';
   #editor .actions button { margin: 0 0 0 1em; }
   #editor .tabs button.on { text-decoration: underline; }
 
-  #publish-panel {
-    flex: none;
-    font-size: 0.75em;
-    margin-bottom: 0.8em;
-    padding: 0.6em 0.7em;
+  #pane-publish { overflow-y: auto; display: block; font-size: 0.8em; padding-bottom: 1rem; }
+  #pane-publish[hidden] { display: none; }
+  #pane-publish section { margin-bottom: 1.6em; }
+  #pane-publish h3 { font-size: 1em; margin: 0 0 0.5em; }
+  #pane-publish .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4em 1em; }
+  #pane-publish .slug-row { display: inline-flex; align-items: baseline; }
+  #pane-publish .prefix { color: #888; }
+  #pane-publish .check { color: #444; cursor: pointer; }
+  #pane-publish button { margin: 0; }
+  #pane-publish button.primary { color: #000; text-decoration: underline; }
+  #pane-publish .status { margin: 0.4em 0 0; color: #888; min-height: 1.2em; }
+  #pane-publish .status a { color: #000; }
+  #pane-publish .fine { color: #999; font-size: 0.85em; margin: 0.3em 0 0.6em; }
+  #slug,
+  #pane-publish .field {
+    font: inherit;
+    padding: 0.15em 0.35em;
     border: 0.5px solid #000;
+    border-radius: 0;
+    background: #fff;
+    outline: none;
   }
-  #publish-panel[hidden] { display: none; }
-  #publish-panel .slug-row { display: inline-flex; align-items: baseline; margin-right: 1em; }
-  #publish-panel .prefix { color: #888; }
-  #slug { font-size: 1em; padding: 0.15em 0.35em; width: 16em; }
-  #publish-panel #do-publish { color: #000; text-decoration: underline; }
-  #publish-status { margin: 0.5em 0 0; color: #888; min-height: 1.2em; }
-  #publish-status a { color: #000; }
+  #slug { width: 15em; }
+  #essay-admin,
+  #pw-list { list-style: none; padding: 0; margin: 0; }
+  #essay-admin li,
+  #pw-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2em 0.9em; padding: 0.25em 0; border-bottom: 0.5px solid #eee; }
+  #essay-admin .t { flex: 1; min-width: 10em; }
+  #essay-admin .t a { color: #000; }
+  #essay-admin .meta { color: #999; font-size: 0.85em; }
+  #essay-admin .empty,
+  #pw-list .empty { color: #999; border: 0; }
+  #essay-admin button.danger:hover,
+  #essay-admin button.confirm { color: #b00; }
+  #pw-list .field { flex: 1; min-width: 8em; }
 
   #editor .pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #editor .pane[hidden] { display: none; }
@@ -405,8 +454,11 @@ import '../../styles/editor.css';
   // ---- preview --------------------------------------------------------------------------------------------------
   const tabEdit = $('tab-edit');
   const tabPreview = $('tab-preview');
+  const tabPublish = $('tab-publish');
   const paneEdit = $('pane-edit');
   const preview = $('preview');
+  const panePublish = $('pane-publish');
+  const VIEW = 'essay-editor-view';
   const toc = $('toc');
   const tocInline = $('toc-inline');
   const tocInlineWrap = $('toc-inline-wrap');
@@ -429,17 +481,26 @@ import '../../styles/editor.css';
     unmount = [mountToc(preview, toc), mountToc(preview, tocInline)];
   }
 
-  function show(which: 'edit' | 'preview') {
-    const p = which === 'preview';
-    paneEdit.hidden = p;
-    preview.hidden = !p;
-    tabEdit.classList.toggle('on', !p);
-    tabPreview.classList.toggle('on', p);
-    if (p) { preview.scrollTop = 0; renderPreview(); }
-    else { unmount.forEach((u) => u()); unmount = []; toc.innerHTML = ''; md.focus(); }
+  type View = 'edit' | 'preview' | 'publish';
+  function show(which: View) {
+    paneEdit.hidden = which !== 'edit';
+    preview.hidden = which !== 'preview';
+    panePublish.hidden = which !== 'publish';
+    tabEdit.classList.toggle('on', which === 'edit');
+    tabPreview.classList.toggle('on', which === 'preview');
+    tabPublish.classList.toggle('on', which === 'publish');
+    // file writes make the dev server reload this page; come back to the same view
+    try { sessionStorage.setItem(VIEW, which); } catch {}
+    unmount.forEach((u) => u());
+    unmount = [];
+    toc.innerHTML = '';
+    if (which === 'preview') { preview.scrollTop = 0; renderPreview(); }
+    else if (which === 'publish') openPublish();
+    else md.focus();
   }
   tabEdit.addEventListener('click', () => show('edit'));
   tabPreview.addEventListener('click', () => show('preview'));
+  tabPublish.addEventListener('click', () => show('publish'));
 
   // ---- export ---------------------------------------------------------------------------------------------------
   const slugify = (s: string) => s.toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).replace(/-+$/, '');
@@ -476,16 +537,60 @@ import '../../styles/editor.css';
     note('downloaded');
   });
 
-  // ---- publish (local dev server writes src/essays/<slug>.md + public/essays/<slug>/*) -----------------------
-  const panel = $('publish-panel');
+  // ---- publishing screen (local dev server: writes src/essays, public/essays, .private) ---------------------
   const slugInput = $<HTMLInputElement>('slug');
+  const isPrivate = $<HTMLInputElement>('is-private');
   const doPublish = $<HTMLButtonElement>('do-publish');
   const status = $('publish-status');
+  const adminList = $('essay-admin');
+  const adminStatus = $('admin-status');
+  const pwList = $('pw-list');
+  const pwNew = $<HTMLInputElement>('pw-new');
+  const pwStatus = $('pw-status');
   const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-  const PENDING = 'essay-publish-pending';
+  const LOCAL_ONLY = 'publishing only works on the local dev server (npm run dev)';
+  const FLASH = 'essay-editor-flash';
+  type Essay = { slug: string; title: string; date: string; private: boolean };
   let exists = false;
   let checkTimer = 0;
+  let passwords: string[] = [];   // saved on the server
+  let pwDraft: string[] = [];     // being edited here
 
+  async function api<T = any>(path: string, payload: object = {}): Promise<T> {
+    let r: Response;
+    try {
+      r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, ...payload }) });
+    } catch { throw new Error(LOCAL_ONLY); }
+    if (r.status === 404 && !(r.headers.get('content-type') ?? '').includes('json')) throw new Error(LOCAL_ONLY);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error ?? `failed (${r.status})`), { status: r.status });
+    return j;
+  }
+
+  // A write into src/ reloads this page, sometimes before the response arrives. Each action records what it
+  // will report on success; after a reload the message is shown from here.
+  type Flash = { target: string; text: string; slug?: string; at: number };
+  const setFlash = (f: Omit<Flash, 'at'>) => { try { sessionStorage.setItem(FLASH, JSON.stringify({ ...f, at: Date.now() })); } catch {} };
+  const clearFlash = () => { try { sessionStorage.removeItem(FLASH); } catch {} };
+  function takeFlash(): Flash | null {
+    try {
+      const f = JSON.parse(sessionStorage.getItem(FLASH) ?? 'null');
+      sessionStorage.removeItem(FLASH);
+      return f && Date.now() - f.at < 60_000 ? f : null;
+    } catch { return null; }
+  }
+  /** Status text; `{link}` becomes a link to the essay. */
+  function say(el: HTMLElement, text: string, slug?: string) {
+    if (!slug || !text.includes('{link}')) { el.textContent = text.replace('{link}', ''); return; }
+    const [before, after] = text.split('{link}');
+    const a = document.createElement('a');
+    a.href = `/essays/${slug}`;
+    a.textContent = `hudsonmp.me/essays/${slug}`;
+    el.textContent = before;
+    el.append(a, after ?? '');
+  }
+
+  // -- this draft
   async function checkSlug() {
     const slug = slugInput.value;
     exists = false;
@@ -495,27 +600,19 @@ import '../../styles/editor.css';
     doPublish.disabled = false;
     try {
       const r = await fetch(`/__essays/check?slug=${encodeURIComponent(slug)}`);
-      if (r.status === 404) { status.textContent = 'publishing only works on the local dev server (npm run dev)'; doPublish.disabled = true; return; }
+      if (!(r.headers.get('content-type') ?? '').includes('json')) throw 0;
       const j = await r.json();
       if (slugInput.value !== slug) return;
       exists = !!j.exists;
-      status.textContent = exists ? 'an essay already lives here, publishing will replace it' : 'new page';
+      if (exists) isPrivate.checked = !!j.private;
+      status.textContent = exists ? `an essay already lives here (${j.private ? 'private' : 'public'}); publishing will replace it` : 'new page';
       doPublish.textContent = exists ? 'replace' : 'publish';
     } catch {
-      status.textContent = 'publishing only works on the local dev server (npm run dev)';
+      status.textContent = LOCAL_ONLY;
       doPublish.disabled = true;
     }
   }
 
-  $('open-publish').addEventListener('click', () => {
-    panel.hidden = !panel.hidden;
-    if (panel.hidden) return;
-    slugInput.value = slugify(parts().title);
-    checkSlug();
-    slugInput.focus();
-    slugInput.select();
-  });
-  $('cancel-publish').addEventListener('click', () => { panel.hidden = true; });
   slugInput.addEventListener('input', () => {
     const pos = slugInput.selectionStart;
     slugInput.value = slugInput.value.toLowerCase().replace(/[^a-z0-9-]/g, '-');
@@ -524,16 +621,20 @@ import '../../styles/editor.css';
     checkTimer = window.setTimeout(checkSlug, 200);
   });
   slugInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doPublish.click(); } });
+  isPrivate.addEventListener('change', () => {
+    if (isPrivate.checked && !passwords.length) status.textContent = 'add and save a password below before publishing privately';
+  });
 
   doPublish.addEventListener('click', async () => {
     const p = parts();
     const slug = slugInput.value;
-    if (!p.title) { status.textContent = 'add a title first'; title.focus(); return; }
+    if (!p.title) { status.textContent = 'add a title first (edit tab)'; return; }
     if (!p.body.trim()) { status.textContent = 'nothing to publish yet'; return; }
+    if (isPrivate.checked && !passwords.length) { status.textContent = 'add and save a password below before publishing privately'; pwNew.focus(); return; }
 
     // images that are still remote links: try once more to turn them into files
     let body = p.body;
-    if (/!\[[^\]]*\]\((?!asset:)(?!\/)/.test(body)) {
+    if (/!\[[^\]]*\]\((?!asset:)(?!\/)(?!data:)/.test(body)) {
       status.textContent = 'downloading images…';
       const r = await importImages(body);
       if (r.imported) { md.value = md.value.replace(p.body, () => r.text); saveDraft(); }
@@ -545,56 +646,196 @@ import '../../styles/editor.css';
     if (missing.length) { status.textContent = `missing image data: ${missing.join(', ')}`; return; }
 
     doPublish.disabled = true;
-    status.textContent = 'publishing…';
-    // writing into src/ makes the dev server reload this page, sometimes before the response lands;
-    // remember the attempt so the result can be shown after the reload
-    try { sessionStorage.setItem(PENDING, JSON.stringify({ slug, at: Date.now() })); } catch {}
-    let published = false;
+    status.textContent = isPrivate.checked ? 'encrypting and publishing…' : 'publishing…';
+    const ok = `published${isPrivate.checked ? ' (private)' : ''}: {link} · commit and deploy to put it live`;
+    setFlash({ target: 'publish-status', text: ok, slug });
     try {
       const assets = await Promise.all(names.map(async (n) => {
         const a = getAsset(n)!;
         return { name: n, type: a.type, data: await blobToBase64(a.blob) };
       }));
-      const r = await fetch('/__essays/publish', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ key, slug, title: p.title, date: p.date, body, assets, overwrite: exists }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (r.status === 409) { exists = true; doPublish.textContent = 'replace'; status.textContent = 'an essay already lives here, click replace to overwrite it'; return; }
-      if (!r.ok) { status.textContent = j.error ?? `failed (${r.status})`; return; }
-      published = true;
-      try { sessionStorage.setItem(PENDING, JSON.stringify({ slug, at: Date.now() })); } catch {}
-      showPublished(slug);
-    } catch {
-      status.textContent = 'publishing only works on the local dev server (npm run dev)';
+      await api('/__essays/publish', { slug, title: p.title, date: p.date, body, assets, overwrite: exists, private: isPrivate.checked });
+      say(status, ok, slug);
+      exists = true;
+      doPublish.textContent = 'replace';
+      loadEssays();
+    } catch (e) {
+      clearFlash();
+      const err = e as Error & { status?: number };
+      if (err.status === 409) { exists = true; doPublish.textContent = 'replace'; status.textContent = 'an essay already lives here, click replace to overwrite it'; }
+      else status.textContent = err.message;
     } finally {
-      if (!published) try { sessionStorage.removeItem(PENDING); } catch {}
       doPublish.disabled = false;
     }
   });
 
-  function showPublished(slug: string) {
-    panel.hidden = false;
-    slugInput.value = slug;
-    status.innerHTML = '';
-    status.append('published: ');
-    const a = document.createElement('a');
-    a.href = `/essays/${slug}`;
-    a.textContent = `hudsonmp.me/essays/${slug}`;
-    status.append(a, ' (written to src/essays + public/essays; commit and deploy to put it live)');
-    exists = true;
-    doPublish.textContent = 'replace';
+  // -- published essays
+  function renderEssays(list: Essay[]) {
+    if (!list.length) {
+      adminList.innerHTML = '<li class="empty">nothing published yet</li>';
+      return;
+    }
+    adminList.replaceChildren(...list.map((e) => {
+      const li = document.createElement('li');
+      const t = document.createElement('span');
+      t.className = 't';
+      const a = document.createElement('a');
+      a.href = `/essays/${e.slug}`;
+      a.textContent = e.title;
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = ` /${e.slug}${e.date ? ' · ' + e.date : ''}`;
+      t.append(a, meta);
+
+      const label = document.createElement('label');
+      label.className = 'check';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = e.private;
+      box.addEventListener('change', () => setPrivacy(e, box));
+      label.append(box, ' private');
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'danger';
+      del.textContent = 'delete';
+      let armed = 0;
+      del.addEventListener('click', () => {
+        if (!armed) {
+          del.textContent = 'click again to delete';
+          del.classList.add('confirm');
+          armed = window.setTimeout(() => { armed = 0; del.textContent = 'delete'; del.classList.remove('confirm'); }, 4000);
+          return;
+        }
+        clearTimeout(armed);
+        remove(e, del);
+      });
+      li.append(t, label, del);
+      return li;
+    }));
   }
 
-  async function resumePending() {
-    let p: { slug: string; at: number } | null = null;
-    try { p = JSON.parse(sessionStorage.getItem(PENDING) ?? 'null'); sessionStorage.removeItem(PENDING); } catch {}
-    if (!p || Date.now() - p.at > 60_000) return;
+  async function loadEssays() {
+    try { renderEssays((await api<{ essays: Essay[] }>('/__essays/list')).essays); }
+    catch (e) { adminList.innerHTML = ''; adminStatus.textContent = (e as Error).message; }
+  }
+
+  async function setPrivacy(e: Essay, box: HTMLInputElement) {
+    const to = box.checked;
+    if (to && !passwords.length) { box.checked = false; adminStatus.textContent = 'add and save a password below first'; return; }
+    box.disabled = true;
+    adminStatus.textContent = to ? `encrypting "${e.title}"…` : `decrypting "${e.title}"…`;
+    const ok = `"${e.title}" is now ${to ? 'private' : 'public'} · commit and deploy to put it live`;
+    setFlash({ target: 'admin-status', text: ok });
     try {
-      const r = await fetch(`/__essays/check?slug=${encodeURIComponent(p.slug)}`);
-      if (r.ok && (await r.json()).exists) showPublished(p.slug);
-    } catch {}
+      renderEssays((await api<{ essays: Essay[] }>('/__essays/privacy', { slug: e.slug, private: to })).essays);
+      adminStatus.textContent = ok;
+    } catch (err) {
+      clearFlash();
+      box.checked = !to;
+      box.disabled = false;
+      adminStatus.textContent = (err as Error).message;
+    }
+  }
+
+  async function remove(e: Essay, btn: HTMLButtonElement) {
+    btn.disabled = true;
+    const ok = `deleted "${e.title}" · commit and deploy to remove it from the site`;
+    setFlash({ target: 'admin-status', text: ok });
+    try {
+      renderEssays((await api<{ essays: Essay[] }>('/__essays/delete', { slug: e.slug })).essays);
+      adminStatus.textContent = ok;
+      if (slugInput.value === e.slug) checkSlug();
+    } catch (err) {
+      clearFlash();
+      btn.disabled = false;
+      adminStatus.textContent = (err as Error).message;
+    }
+  }
+
+  // -- reader passwords
+  const pwDirty = () => pwDraft.length !== passwords.length || pwDraft.some((p, i) => p !== passwords[i]);
+  function renderPasswords() {
+    if (!pwDraft.length) pwList.innerHTML = '<li class="empty">no passwords yet</li>';
+    else pwList.replaceChildren(...pwDraft.map((p, i) => {
+      const li = document.createElement('li');
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'field';
+      input.value = p;
+      input.spellcheck = false;
+      input.setAttribute('aria-label', `password ${i + 1}`);
+      input.addEventListener('input', () => { pwDraft[i] = input.value; markPw(); });
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.textContent = 'remove';
+      rm.addEventListener('click', () => { pwDraft.splice(i, 1); renderPasswords(); markPw(); });
+      li.append(input, rm);
+      return li;
+    }));
+  }
+  function markPw() { pwStatus.textContent = pwDirty() ? 'unsaved changes' : ''; }
+
+  function addPassword() {
+    const v = pwNew.value.trim();
+    if (!v) return;
+    if (pwDraft.includes(v)) { pwStatus.textContent = 'already added'; return; }
+    pwDraft.push(v);
+    pwNew.value = '';
+    renderPasswords();
+    markPw();
+  }
+  $('pw-add').addEventListener('click', addPassword);
+  pwNew.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addPassword(); } });
+
+  $('pw-save').addEventListener('click', async () => {
+    if (pwNew.value.trim()) addPassword();
+    const next = pwDraft.map((p) => p.trim()).filter(Boolean);
+    const btn = $<HTMLButtonElement>('pw-save');
+    btn.disabled = true;
+    pwStatus.textContent = 'saving and re-encrypting private essays…';
+    const ok = 'passwords saved';
+    setFlash({ target: 'pw-status', text: `${ok} · private essays re-encrypted; commit and deploy to put it live` });
+    try {
+      const j = await api<{ passwords: string[]; resealed: number }>('/__essays/passwords', { passwords: next });
+      passwords = j.passwords;
+      pwDraft = [...passwords];
+      renderPasswords();
+      pwStatus.textContent = j.resealed ? `${ok} · re-encrypted ${j.resealed} private essay${j.resealed > 1 ? 's' : ''}; commit and deploy to put it live` : ok;
+      setFlash({ target: 'pw-status', text: pwStatus.textContent }); // survives the reload the re-encryption triggers
+    } catch (e) {
+      clearFlash();
+      pwStatus.textContent = (e as Error).message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  async function loadPasswords() {
+    try {
+      passwords = (await api<{ passwords: string[] }>('/__essays/passwords')).passwords;
+      pwDraft = [...passwords];
+      renderPasswords();
+    } catch (e) { pwStatus.textContent = (e as Error).message; }
+  }
+
+  let slugChecked: Promise<void> = Promise.resolve();
+  function openPublish() {
+    if (!slugInput.value) slugInput.value = slugify(parts().title);
+    slugChecked = checkSlug();
+    loadEssays();
+    loadPasswords();
+  }
+
+  async function restore() {
+    let view: View = 'edit';
+    try { view = (sessionStorage.getItem(VIEW) as View) || 'edit'; } catch {}
+    const f = takeFlash();
+    if (f?.slug) slugInput.value = f.slug;
+    show(view);
+    if (!f) return;
+    await slugChecked; // don't let the slug check overwrite the message
+    say($(f.target), f.text, f.slug);
   }
 
   // ---- start ----------------------------------------------------------------------------------------------------
@@ -602,7 +843,6 @@ import '../../styles/editor.css';
     await loadAssets();
     key = await gate();
     editor.hidden = false;
-    md.focus();
-    resumePending();
+    restore();
   })();
 </script>

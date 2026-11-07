@@ -12,6 +12,10 @@ const readings = loadReadings();
     <input id="pw" type="password" placeholder="password" aria-label="password" autofocus />
     <span id="gate-err" role="alert"></span>
   </form>
+  <script is:inline>
+    // decide before first paint: a tab that already unlocked an editor never sees the password box
+    try { if (sessionStorage.getItem('site-editor-key')) document.getElementById('gate').hidden = true; } catch (e) {}
+  </script>
 
   <div id="readings-editor" hidden>
     <form id="add-form" autocomplete="off">

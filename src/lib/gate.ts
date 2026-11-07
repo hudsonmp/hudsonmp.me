@@ -24,8 +24,13 @@ export async function gate(): Promise<string> {
     form.hidden = true;
     return saved;
   }
+  // a stale or wrong saved key: the page hid the box optimistically, so bring it back
+  form.hidden = false;
+  pw.focus();
 
   return new Promise((resolve) => {
+    // implicit submission isn't fired by every input method; make Enter explicit
+    pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); form.requestSubmit(); } });
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if ((await sha256(pw.value)) !== PASSWORD_SHA256) {
