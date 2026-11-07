@@ -4,7 +4,8 @@
  *
  *   GET  /__essays/check?slug=<slug>                  -> { exists, private, reserved }
  *   POST /__essays/auth      { key }                  -> { ok, mode }
- *   POST /__essays/asset     { key, name, type, data }-> { name, id }       stage one image (keeps requests small)
+ *   POST /__essays/chunk     { key, data }            -> { id }             stage one piece of a large image
+ *   POST /__essays/asset     { key, name, type, data | parts:[chunkIds] } -> { name, id }   stage one image
  *   POST /__essays/publish   { key, slug, title, date, body, assets:[{name,type,id}], overwrite, private }
  *   POST /__essays/list      { key }                  -> { essays:[{slug,title,date,private}] }
  *   POST /__essays/privacy   { key, slug, private }   -> seal / unseal an existing essay
@@ -230,10 +231,29 @@ export function createPublisher({ store, verify, log = () => {} }) {
         return { status: 200, bytes: buf, type };
       }
 
+      // a piece of a large image (the host caps request size, so the browser sends big files in parts)
+      if (pathname === '/__essays/chunk') {
+        const buf = Buffer.from(String(body.data ?? ''), 'base64');
+        if (!buf.length || buf.length > 4 * 1024 * 1024) return bad(400, 'bad chunk');
+        return ok({ id: await store.stage(buf) });
+      }
+
       if (pathname === '/__essays/asset') {
         const name = String(body.name ?? '');
         if (!ASSET.test(name)) return bad(400, `bad asset name ${name}`);
-        const buf = Buffer.from(String(body.data ?? ''), 'base64');
+        let buf;
+        if (Array.isArray(body.parts)) {
+          if (body.parts.length > 20) return bad(413, `${name} too large`);
+          const pieces = [];
+          for (const id of body.parts) {
+            const piece = await store.readStaged(String(id));
+            if (!piece) return bad(400, 'missing image part; try again');
+            pieces.push(piece);
+          }
+          buf = Buffer.concat(pieces);
+        } else {
+          buf = Buffer.from(String(body.data ?? ''), 'base64');
+        }
         if (!buf.length) return bad(400, 'empty image');
         if (buf.length > MAX_IMAGE) return bad(413, `${name} too large`);
         return ok({ name, id: await store.stage(buf) });

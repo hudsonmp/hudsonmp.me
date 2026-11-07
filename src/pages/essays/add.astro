@@ -548,6 +548,7 @@ import '../../styles/editor.css';
   const pwNew = $<HTMLInputElement>('pw-new');
   const pwStatus = $('pw-status');
   const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+  const CHUNK = 3_000_000; // base64 characters per upload request (a multiple of 4, so each piece decodes alone)
   const UNREACHABLE = "can't reach the publishing server";
   // locally a publish writes files (you commit them); on hudsonmp.me it is committed to GitHub and Vercel redeploys
   const liveNote = (what = 'put it live') =>
@@ -565,7 +566,7 @@ import '../../styles/editor.css';
       r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, ...payload }) });
     } catch { throw new Error(UNREACHABLE); }
     if (r.status === 404 && !(r.headers.get('content-type') ?? '').includes('json')) throw new Error("publishing isn't available here");
-    if (r.status === 413) throw new Error('that is too large to publish in one request; use smaller images');
+    if (r.status === 413) throw new Error('that request was too large for the host to accept');
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(j.error ?? `failed (${r.status})`), { status: r.status });
     return j;
@@ -659,7 +660,19 @@ import '../../styles/editor.css';
       for (const n of names) {
         const a = getAsset(n)!;
         status.textContent = `uploading image ${assets.length + 1} of ${names.length}…`;
-        const up = await api<{ id: string }>('/__essays/asset', { name: n, type: a.type, data: await blobToBase64(a.blob) });
+        const b64 = await blobToBase64(a.blob);
+        let up: { id: string };
+        if (b64.length <= CHUNK) {
+          up = await api('/__essays/asset', { name: n, type: a.type, data: b64 });
+        } else {
+          // large images go up in pieces: the host rejects any single request over ~4.5 MB
+          const parts: string[] = [];
+          for (let i = 0; i < b64.length; i += CHUNK) {
+            status.textContent = `uploading image ${assets.length + 1} of ${names.length} (${Math.min(100, Math.round((i / b64.length) * 100))}%)…`;
+            parts.push((await api<{ id: string }>('/__essays/chunk', { data: b64.slice(i, i + CHUNK) })).id);
+          }
+          up = await api('/__essays/asset', { name: n, type: a.type, parts });
+        }
         assets.push({ name: n, type: a.type, id: up.id });
       }
       status.textContent = isPrivate.checked ? 'encrypting and publishing…' : 'publishing…';

@@ -25,4 +25,4 @@ locally and on the site. Signing in locally with a strong `PUBLISH_PASSWORD` mig
 into that file once; commit it. The site and your checkout share a branch, so `git pull` before committing locally
 after publishing from the site.
 
-Request size on Vercel is capped (about 4.5 MB), so images are uploaded one at a time: a single image over roughly 3 MB can't be published from the site.
+Request size on Vercel is capped (about 4.5 MB), so images are uploaded one at a time and split into ~3 MB pieces when larger (25 MB per image maximum).
