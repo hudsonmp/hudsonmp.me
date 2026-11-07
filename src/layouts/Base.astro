@@ -31,6 +31,21 @@ const here = (href: string) => (href === '/' ? path === '/' : path === href || p
       </aside>
     </div>
     <script>
+      // footnote links scroll the nearest scroll container (a plain #hash jump can nudge the locked page)
+      document.addEventListener('click', (e) => {
+        const a = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href^="#fn-"], a[href^="#fnref-"]');
+        const target = a && document.getElementById(a.getAttribute('href')!.slice(1));
+        if (!a || !target) return;
+        e.preventDefault();
+        let box: HTMLElement | null = target.parentElement;
+        while (box && !/(auto|scroll)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
+        if (!box) return;
+        const top = box.scrollTop + target.getBoundingClientRect().top - box.getBoundingClientRect().top - 24;
+        box.scrollTo({ top, behavior: 'smooth' });
+        history.replaceState(null, '', '#' + target.id);
+      });
+    </script>
+    <script>
       // external links open in a new tab; internal pages (home, essays, readings, header) and mailto stay in place
       document.querySelectorAll<HTMLAnchorElement>('a[href^="http"]').forEach((a) => {
         a.target = '_blank';
