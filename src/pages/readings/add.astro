@@ -113,7 +113,7 @@ const readings = loadReadings();
       items = previous;
       render();
       const msg = (e as Error).message;
-      say(msg === 'local' || msg === 'Failed to fetch' ? 'editing only works on the local dev server (npm run dev); commit + deploy to put changes live' : msg);
+      say(msg === 'local' ? "editing isn't available here" : msg === 'Failed to fetch' ? "can't reach the publishing server" : msg);
       return false;
     }
   }
@@ -148,7 +148,7 @@ const readings = loadReadings();
         titleIn.value = j.title.toLowerCase();
         titleIn.select();
       }
-    } catch { /* not on the dev server: type the title */ }
+    } catch { /* lookup unavailable: type the title */ }
     titleIn.placeholder = 'title';
   }
   urlIn.addEventListener('paste', () => setTimeout(lookupTitle, 0));

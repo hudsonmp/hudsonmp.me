@@ -189,7 +189,7 @@ import '../../styles/editor.css';
   import { tocHtml, mountToc } from '../../lib/toc';
   import { htmlToMarkdown, hasStructure } from '../../lib/html2md';
   import { saveAsset, loadAssets, assetUrl, getAsset, referencedAssets, blobToBase64, isSupportedImage } from '../../lib/assets';
-  import { gate } from '../../lib/gate';
+  import { gate, publishMode } from '../../lib/gate';
 
   const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
   const editor = $('editor');
@@ -537,7 +537,7 @@ import '../../styles/editor.css';
     note('downloaded');
   });
 
-  // ---- publishing screen (local dev server: writes src/essays, public/essays, .private) ---------------------
+  // ---- publishing screen (dev server writes files; hudsonmp.me commits to GitHub) ---------------------
   const slugInput = $<HTMLInputElement>('slug');
   const isPrivate = $<HTMLInputElement>('is-private');
   const doPublish = $<HTMLButtonElement>('do-publish');
@@ -548,7 +548,10 @@ import '../../styles/editor.css';
   const pwNew = $<HTMLInputElement>('pw-new');
   const pwStatus = $('pw-status');
   const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-  const LOCAL_ONLY = 'publishing only works on the local dev server (npm run dev)';
+  const UNREACHABLE = "can't reach the publishing server";
+  // locally a publish writes files (you commit them); on hudsonmp.me it is committed to GitHub and Vercel redeploys
+  const liveNote = (what = 'put it live') =>
+    publishMode === 'github' ? 'saved to GitHub; the site updates in about a minute' : `commit and deploy to ${what}`;
   const FLASH = 'essay-editor-flash';
   type Essay = { slug: string; title: string; date: string; private: boolean };
   let exists = false;
@@ -560,8 +563,9 @@ import '../../styles/editor.css';
     let r: Response;
     try {
       r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, ...payload }) });
-    } catch { throw new Error(LOCAL_ONLY); }
-    if (r.status === 404 && !(r.headers.get('content-type') ?? '').includes('json')) throw new Error(LOCAL_ONLY);
+    } catch { throw new Error(UNREACHABLE); }
+    if (r.status === 404 && !(r.headers.get('content-type') ?? '').includes('json')) throw new Error("publishing isn't available here");
+    if (r.status === 413) throw new Error('that is too large to publish in one request; use smaller images');
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(j.error ?? `failed (${r.status})`), { status: r.status });
     return j;
@@ -608,7 +612,7 @@ import '../../styles/editor.css';
       status.textContent = exists ? `an essay already lives here (${j.private ? 'private' : 'public'}); publishing will replace it` : 'new page';
       doPublish.textContent = exists ? 'replace' : 'publish';
     } catch {
-      status.textContent = LOCAL_ONLY;
+      status.textContent = UNREACHABLE;
       doPublish.disabled = true;
     }
   }
@@ -647,13 +651,18 @@ import '../../styles/editor.css';
 
     doPublish.disabled = true;
     status.textContent = isPrivate.checked ? 'encrypting and publishing…' : 'publishing…';
-    const ok = `published${isPrivate.checked ? ' (private)' : ''}: {link} · commit and deploy to put it live`;
+    const ok = `published${isPrivate.checked ? ' (private)' : ''}: {link} · ${liveNote()}`;
     setFlash({ target: 'publish-status', text: ok, slug });
     try {
-      const assets = await Promise.all(names.map(async (n) => {
+      // one request per image keeps each under the host's request size limit
+      const assets: { name: string; type: string; id: string }[] = [];
+      for (const n of names) {
         const a = getAsset(n)!;
-        return { name: n, type: a.type, data: await blobToBase64(a.blob) };
-      }));
+        status.textContent = `uploading image ${assets.length + 1} of ${names.length}…`;
+        const up = await api<{ id: string }>('/__essays/asset', { name: n, type: a.type, data: await blobToBase64(a.blob) });
+        assets.push({ name: n, type: a.type, id: up.id });
+      }
+      status.textContent = isPrivate.checked ? 'encrypting and publishing…' : 'publishing…';
       await api('/__essays/publish', { slug, title: p.title, date: p.date, body, assets, overwrite: exists, private: isPrivate.checked });
       say(status, ok, slug);
       exists = true;
@@ -725,7 +734,7 @@ import '../../styles/editor.css';
     if (to && !passwords.length) { box.checked = false; adminStatus.textContent = 'add and save a password below first'; return; }
     box.disabled = true;
     adminStatus.textContent = to ? `encrypting "${e.title}"…` : `decrypting "${e.title}"…`;
-    const ok = `"${e.title}" is now ${to ? 'private' : 'public'} · commit and deploy to put it live`;
+    const ok = `"${e.title}" is now ${to ? 'private' : 'public'} · ${liveNote()}`;
     setFlash({ target: 'admin-status', text: ok });
     try {
       renderEssays((await api<{ essays: Essay[] }>('/__essays/privacy', { slug: e.slug, private: to })).essays);
@@ -740,7 +749,7 @@ import '../../styles/editor.css';
 
   async function remove(e: Essay, btn: HTMLButtonElement) {
     btn.disabled = true;
-    const ok = `deleted "${e.title}" · commit and deploy to remove it from the site`;
+    const ok = `deleted "${e.title}" · ${liveNote('remove it from the site')}`;
     setFlash({ target: 'admin-status', text: ok });
     try {
       renderEssays((await api<{ essays: Essay[] }>('/__essays/delete', { slug: e.slug })).essays);
@@ -795,13 +804,13 @@ import '../../styles/editor.css';
     btn.disabled = true;
     pwStatus.textContent = 'saving and re-encrypting private essays…';
     const ok = 'passwords saved';
-    setFlash({ target: 'pw-status', text: `${ok} · private essays re-encrypted; commit and deploy to put it live` });
+    setFlash({ target: 'pw-status', text: `${ok} · private essays re-encrypted; ${liveNote()}` });
     try {
       const j = await api<{ passwords: string[]; resealed: number }>('/__essays/passwords', { passwords: next });
       passwords = j.passwords;
       pwDraft = [...passwords];
       renderPasswords();
-      pwStatus.textContent = j.resealed ? `${ok} · re-encrypted ${j.resealed} private essay${j.resealed > 1 ? 's' : ''}; commit and deploy to put it live` : ok;
+      pwStatus.textContent = j.resealed ? `${ok} · re-encrypted ${j.resealed} private essay${j.resealed > 1 ? 's' : ''}; ${liveNote()}` : ok;
       setFlash({ target: 'pw-status', text: pwStatus.textContent }); // survives the reload the re-encryption triggers
     } catch (e) {
       clearFlash();

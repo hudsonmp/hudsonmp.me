@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/__essays/:action", "destination": "/api/publish?scope=essays&action=:action" },
+    { "source": "/__readings/:action", "destination": "/api/publish?scope=readings&action=:action" }
+  ],
+  "functions": { "api/publish.mjs": { "maxDuration": 60 } }
+}
