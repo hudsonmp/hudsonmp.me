@@ -233,4 +233,12 @@ const here = (href: string) => (href === '/' ? path === '/' : path === href || p
     }
     .toc { display: none; }
   }
+
+  /* printing: the page is a fixed-height app shell on screen, which prints as one clipped page; let it flow instead */
+  @media print {
+    html, body { height: auto !important; overflow: visible !important; display: block !important; }
+    .layout { display: block !important; max-width: none !important; }
+    .left { max-height: none !important; overflow: visible !important; }
+    .right, .toc-spacer, .essay-unlock, .toc-inline { display: none !important; }
+  }
 </style>
