@@ -30,7 +30,7 @@
 .essay-body code { font-size: 0.8em; background: #f3f3f3; padding: 0.1em 0.3em; }
 .essay-body pre { background: #f3f3f3; padding: 0.8em 1em; overflow-x: auto; }
 .essay-body pre code { background: none; padding: 0; }
-.essay-body table { border-collapse: collapse; font-size: 0.85em; }
+.essay-body table { border-collapse: collapse; font-size: 0.85em; display: block; max-width: 100%; overflow-x: auto; }
 .essay-body th, .essay-body td { border: 0.5px solid #000; padding: 0.25em 0.6em; }
 .essay-body hr { border: 0; border-top: 0.5px solid #000; margin: 2em 0; }
 

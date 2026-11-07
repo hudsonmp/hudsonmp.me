@@ -31,6 +31,20 @@ const here = (href: string) => (href === '/' ? path === '/' : path === href || p
       </aside>
     </div>
     <script>
+      // open a link's callout leftwards when it would run past the right edge of the column
+      const placeCallout = (e: Event) => {
+        const a = (e.target as HTMLElement).closest<HTMLAnchorElement>('.left a');
+        const col = a?.closest<HTMLElement>('.left');
+        if (!a || !col) return;
+        a.classList.remove('flip');
+        const w = parseFloat(getComputedStyle(a, '::after').width) || 0;
+        const first = a.getClientRects()[0];
+        if (first && first.left + w > col.getBoundingClientRect().right - 8) a.classList.add('flip');
+      };
+      document.addEventListener('mouseover', placeCallout);
+      document.addEventListener('focusin', placeCallout);
+    </script>
+    <script>
       // footnote links scroll the nearest scroll container (a plain #hash jump can nudge the locked page)
       document.addEventListener('click', (e) => {
         const a = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href^="#fn-"], a[href^="#fnref-"]');
@@ -111,6 +125,7 @@ const here = (href: string) => (href === '/' ? path === '/' : path === href || p
     max-height: 100%;
     box-sizing: border-box; /* the bottom padding must not push the column past the viewport */
     overflow-y: auto;
+    overflow-x: hidden;
     padding-bottom: 1rem;
   }
   /* scroll without native scrollbars */
@@ -174,11 +189,19 @@ const here = (href: string) => (href === '/' ? path === '/' : path === href || p
     background: #fff;
     border: 0.5px solid #000;
     font-size: 0.8em;
-    white-space: nowrap;
-    visibility: hidden;
-    opacity: 0;
-    transition: opacity 0.12s ease;
+    width: max-content;
+    max-width: min(24em, 86vw);
+    white-space: normal;
+    overflow-wrap: anywhere;
+    /* display:none, not just hidden: an invisible callout still counts toward the scrollable width,
+       so a long URL used to make the whole page scroll sideways */
+    display: none;
     z-index: 10;
+  }
+  /* a link near the right edge opens its callout leftwards (set by the script below) */
+  .left a.flip::after {
+    left: auto;
+    right: 0;
   }
   .left a[data-callout]::after {
     content: attr(data-callout);
@@ -194,13 +217,11 @@ const here = (href: string) => (href === '/' ? path === '/' : path === href || p
   }
   .left a:hover::after,
   .left a:focus-visible::after {
-    visibility: visible;
-    opacity: 1;
+    display: block;
   }
   .left a.copied::after {
     content: "copied!";
-    visibility: visible;
-    opacity: 1;
+    display: block;
   }
 
   /* mobile: keep the sidebar on the right, just narrower */
