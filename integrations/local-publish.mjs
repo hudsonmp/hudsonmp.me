@@ -34,7 +34,7 @@ async function readJson(req) {
 }
 
 /** KEY=value lines from .env.local / .env (real environment variables win). */
-function loadEnv(root) {
+export function loadEnv(root) {
   const env = { ...process.env };
   for (const name of ['.env', '.env.local']) {
     let text;

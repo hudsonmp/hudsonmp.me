@@ -1,0 +1,333 @@
+---
+// A password-gated card: one photo (a two-page spread) with clickable regions. The page ships no content; after the
+// password is checked on the server (server/cards.mjs) the image and link boxes are fetched with an HttpOnly cookie.
+// Wide screens show the spread whole; portrait screens split it at `split` into two stacked pages.
+const { slug, title = 'hi' } = Astro.props;
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <title>{title}</title>
+  </head>
+  <body data-slug={slug}>
+    <form id="gate" class="gate" autocomplete="off" hidden>
+      <input id="pw" type="password" placeholder="password" aria-label="password" autocapitalize="off" spellcheck="false" />
+      <p id="msg" role="status"></p>
+    </form>
+    <main id="card" class="card" hidden></main>
+  </body>
+</html>
+
+<style is:global>
+  html, body { margin: 0; padding: 0; background: #fff; }
+  body { font-family: "Times New Roman", Times, serif; min-height: 100dvh; }
+
+  .gate {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6em;
+  }
+  .gate[hidden], .card[hidden] { display: none; }
+  .gate input {
+    font: inherit;
+    font-size: 16px; /* below 16px, iOS zooms the page when the field is focused */
+    width: min(14em, 70vw);
+    padding: 0.4em 0.6em;
+    text-align: center;
+    border: 0.5px solid #000;
+    border-radius: 0;
+    background: #fff;
+    outline: none;
+  }
+  .gate p { margin: 0; min-height: 1.2em; font-size: 0.8em; color: #888; }
+
+  .card {
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.9s ease;
+  }
+  .card.in { opacity: 1; }
+
+  /* the spread fits the viewport; each page is a window onto the same full-size sheet, so link boxes stay aligned */
+  .spread {
+    display: flex;
+    width: min(calc(100vw - 32px), calc((100dvh - 32px) * var(--ar)));
+  }
+  .page {
+    position: relative;
+    overflow: hidden;
+    flex: var(--f) 1 0;
+    min-width: 0;
+  }
+  .sheet { position: absolute; top: 0; height: 100%; }
+  .sheet img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  /* links: a faint highlighter wash so they can be found on a phone (no hover there), stronger on hover/focus */
+  .hot {
+    position: absolute;
+    border-radius: 4px;
+    background: rgba(255, 214, 0, 0.16);
+    mix-blend-mode: multiply;
+    transition: background 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .hot:hover, .hot:focus-visible { background: rgba(255, 214, 0, 0.42); outline: none; }
+
+  /* zoom on mouse/trackpad devices (script below); touch screens keep the browser's own pinch-zoom */
+  .spread { transform-origin: 0 0; }
+  @media (orientation: landscape) {
+    .card { height: 100dvh; overflow: hidden; }
+  }
+  @media (orientation: landscape) and (hover: hover) and (pointer: fine) {
+    .card { cursor: zoom-in; }
+    .card.zoomed { cursor: grab; }
+    .card.grabbing, .card.grabbing .hot { cursor: grabbing; }
+    .hot { cursor: pointer; }
+  }
+  .hint {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 10px;
+    text-align: center;
+    font-size: 13px;
+    color: #999;
+    pointer-events: none;
+    animation: hint 5s ease 1s both;
+  }
+  @keyframes hint { 0%, 100% { opacity: 0; } 15%, 75% { opacity: 1; } }
+
+  @media (orientation: portrait) {
+    .card { align-items: flex-start; }
+    .spread { flex-direction: column; width: 100vw; gap: 12px; padding: 12px 0; }
+    .page { flex: none; width: 100%; }
+  }
+</style>
+
+<script>
+  type Link = { x: number; y: number; w: number; h: number; href: string; label?: string };
+  type Meta = { width: number; height: number; split: number; links: Link[]; v: string; alt?: string };
+
+  const slug = document.body.dataset.slug!;
+  const gate = document.getElementById('gate') as HTMLFormElement;
+  const pw = document.getElementById('pw') as HTMLInputElement;
+  const msg = document.getElementById('msg')!;
+  const card = document.getElementById('card')!;
+  const q = `slug=${encodeURIComponent(slug)}`;
+
+  const errorOf = async (r: Response) => (await r.json().catch(() => null))?.error ?? 'something went wrong';
+  const host = (href: string) => { try { return new URL(href).hostname.replace(/^www\./, ''); } catch { return href; } };
+
+  async function render(m: Meta) {
+    const src = `/__card/image?${q}&v=${m.v}`;
+    const spread = document.createElement('div');
+    spread.className = 'spread';
+    spread.style.setProperty('--ar', String(m.width / m.height));
+    const images: HTMLImageElement[] = [];
+
+    for (const [from, to] of [[0, m.split], [m.split, 1]]) {
+      const f = to - from;
+      const page = document.createElement('div');
+      page.className = 'page';
+      page.style.setProperty('--f', String(f));
+      page.style.aspectRatio = `${f * m.width} / ${m.height}`;
+      const sheet = document.createElement('div');
+      sheet.className = 'sheet';
+      sheet.style.width = `${100 / f}%`;
+      sheet.style.left = `${(-100 * from) / f}%`;
+
+      const img = new Image();
+      img.src = src;
+      img.draggable = false;
+      if (from === 0) img.alt = m.alt ?? 'birthday card';
+      else { img.alt = ''; img.setAttribute('aria-hidden', 'true'); }
+      sheet.append(img);
+      images.push(img);
+
+      for (const l of m.links) {
+        if (l.x >= to || l.x + l.w <= from) continue; // not on this page
+        const a = document.createElement('a');
+        a.className = 'hot';
+        a.href = l.href;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        Object.assign(a.style, { left: `${l.x * 100}%`, top: `${l.y * 100}%`, width: `${l.w * 100}%`, height: `${l.h * 100}%` });
+        const centre = l.x + l.w / 2;
+        if (centre >= from && centre < to) a.setAttribute('aria-label', l.label ?? host(l.href));
+        else { a.tabIndex = -1; a.setAttribute('aria-hidden', 'true'); } // the half of a box that spills over the gutter
+        sheet.append(a);
+      }
+      page.append(sheet);
+      spread.append(page);
+    }
+
+    card.replaceChildren(spread);
+    await Promise.all(images.map((i) => i.decode().catch(() => {})));
+    gate.hidden = true;
+    card.hidden = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add('in')));
+    enableZoom(card, spread, m.width);
+  }
+
+  /**
+   * Pan and zoom for mouse/trackpad in the side-by-side layout: pinch (or ctrl+scroll) zooms around the pointer,
+   * scrolling or dragging pans, a click toggles zoom, + - 0 on the keyboard. Touch screens are left to the browser's
+   * native pinch-zoom, which is better than anything a page can do and works in both layouts.
+   */
+  function enableZoom(stage: HTMLElement, spread: HTMLElement, naturalWidth: number) {
+    const active = () => matchMedia('(orientation: landscape) and (hover: hover) and (pointer: fine)').matches;
+    let s = 1, tx = 0, ty = 0;
+
+    const apply = (animate = false) => {
+      spread.style.transition = animate ? 'transform 0.25s ease' : 'none';
+      spread.style.transform = s === 1 ? '' : `translate(${tx}px, ${ty}px) scale(${s})`;
+      stage.classList.toggle('zoomed', s > 1);
+    };
+    // the spread's untransformed box (transform-origin is its top-left corner)
+    const box = () => {
+      const r = spread.getBoundingClientRect();
+      return { left: r.left - tx, top: r.top - ty, w: r.width / s, h: r.height / s };
+    };
+    const clamp = (b: ReturnType<typeof box>) => {
+      const m = 16;
+      const fit = (t: number, start: number, size: number, view: number) =>
+        size <= view - 2 * m ? (view - size) / 2 - start : Math.min(m - start, Math.max(view - m - size - start, t));
+      tx = fit(tx, b.left, b.w * s, innerWidth);
+      ty = fit(ty, b.top, b.h * s, innerHeight);
+    };
+    const zoomTo = (next: number, x: number, y: number, animate = false) => {
+      const b = box();
+      const max = Math.max(3, (naturalWidth / b.w) * 1.5);
+      next = Math.min(max, Math.max(1, next));
+      if (next < 1.01) next = 1;
+      const lx = (x - b.left - tx) / s, ly = (y - b.top - ty) / s; // the point under the pointer stays put
+      s = next;
+      tx = x - b.left - s * lx;
+      ty = y - b.top - s * ly;
+      if (s === 1) tx = ty = 0;
+      else clamp(b);
+      apply(animate);
+    };
+    const reset = (animate = true) => { s = 1; tx = ty = 0; apply(animate); };
+
+    let gesture = 0; // Safari's trackpad pinch arrives as gesture events
+    stage.addEventListener('wheel', (e) => {
+      if (!active()) return;
+      const unit = e.deltaMode === 1 ? 16 : 1;
+      if (e.ctrlKey) { // trackpad pinch in Chrome/Firefox, or ctrl+scroll
+        e.preventDefault();
+        if (!gesture) zoomTo(s * Math.exp(-e.deltaY * unit * 0.01), e.clientX, e.clientY);
+      } else if (s > 1) {
+        e.preventDefault();
+        const b = box();
+        tx -= e.deltaX * unit;
+        ty -= e.deltaY * unit;
+        clamp(b);
+        apply();
+      }
+    }, { passive: false });
+    stage.addEventListener('gesturestart', (e: any) => { if (!active()) return; e.preventDefault(); gesture = s; });
+    stage.addEventListener('gesturechange', (e: any) => { if (!active() || !gesture) return; e.preventDefault(); zoomTo(gesture * e.scale, e.clientX, e.clientY); });
+    stage.addEventListener('gestureend', (e: any) => { if (!active()) return; e.preventDefault(); gesture = 0; });
+
+    // drag to pan; a press that moves more than a few pixels is a drag, not a click
+    let press: { x: number; y: number; tx: number; ty: number } | null = null;
+    let dragged = false;
+    stage.addEventListener('pointerdown', (e) => {
+      if (!active() || e.pointerType !== 'mouse' || e.button !== 0) return;
+      press = { x: e.clientX, y: e.clientY, tx, ty };
+      dragged = false;
+    });
+    stage.addEventListener('pointermove', (e) => {
+      if (!press || s === 1) return;
+      const dx = e.clientX - press.x, dy = e.clientY - press.y;
+      if (!dragged && Math.hypot(dx, dy) < 5) return;
+      if (!dragged) { dragged = true; stage.setPointerCapture(e.pointerId); stage.classList.add('grabbing'); }
+      const b = box();
+      tx = press.tx + dx;
+      ty = press.ty + dy;
+      clamp(b);
+      apply();
+    });
+    const release = () => { press = null; stage.classList.remove('grabbing'); };
+    stage.addEventListener('pointerup', release);
+    stage.addEventListener('pointercancel', release);
+    stage.addEventListener('click', (e) => {
+      if (dragged) { e.preventDefault(); e.stopPropagation(); dragged = false; return; } // end of a drag, even over a link
+      if (!active() || (e.target as HTMLElement).closest('a')) return;
+      if (s > 1) reset();
+      else zoomTo(2.5, e.clientX, e.clientY, true);
+    }, true);
+
+    addEventListener('keydown', (e) => {
+      if (!active() || e.metaKey || e.ctrlKey || e.altKey) return;
+      const cx = innerWidth / 2, cy = innerHeight / 2;
+      if (e.key === '+' || e.key === '=') zoomTo(s * 1.5, cx, cy, true);
+      else if (e.key === '-') zoomTo(s / 1.5, cx, cy, true);
+      else if (e.key === '0' || e.key === 'Escape') reset();
+    });
+    addEventListener('resize', () => reset(false));
+
+    if (active()) {
+      const hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent = 'click or pinch to zoom';
+      stage.append(hint);
+    }
+  }
+
+  /** 'shown', 'locked', or a message to show under the password box */
+  async function show(): Promise<string> {
+    let r: Response;
+    try { r = await fetch(`/__card/meta?${q}`); } catch { return "can't reach the site"; }
+    if (r.status === 401) return 'locked';
+    if (!r.ok) return errorOf(r);
+    await render(await r.json());
+    return 'shown';
+  }
+
+  (async () => {
+    const s = await show();
+    if (s === 'shown') return;
+    gate.hidden = false;
+    if (s !== 'locked') msg.textContent = s;
+    pw.focus();
+  })();
+
+  // implicit submission isn't fired by every input method; make Enter explicit
+  pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); gate.requestSubmit(); } });
+  gate.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!pw.value) return;
+    pw.disabled = true;
+    msg.textContent = '';
+    let r: Response | null = null;
+    try {
+      r = await fetch('/__card/unlock', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slug, password: pw.value }) });
+    } catch {}
+    if (!r) msg.textContent = "can't reach the site";
+    else if (r.ok) {
+      const s = await show();
+      if (s === 'shown') return;
+      msg.textContent = s === 'locked' ? 'this browser is blocking cookies' : s;
+    } else msg.textContent = r.status === 401 ? 'wrong password' : await errorOf(r);
+    pw.disabled = false;
+    pw.select();
+  });
+</script>
