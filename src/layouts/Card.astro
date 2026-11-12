@@ -129,7 +129,8 @@ const { slug, title = 'hi' } = Astro.props;
 
   @media (orientation: portrait) {
     .card { align-items: flex-start; }
-    .spread { flex-direction: column; width: 100vw; gap: 12px; padding: 12px 0; }
+    /* extra room at the bottom: the "click here" box sits low on the last page, above the browser's toolbar */
+    .spread { flex-direction: column; width: 100vw; gap: 12px; padding: 12px 0 calc(56px + env(safe-area-inset-bottom)); }
     .page { flex: none; width: 100%; }
   }
 
