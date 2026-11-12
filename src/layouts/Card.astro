@@ -1,7 +1,8 @@
 ---
-// A password-gated card: one photo of a two-page spread. The page ships no content; after the password is checked
-// on the server (server/cards.mjs) the image is fetched with an HttpOnly cookie.
-// Wide screens show the spread whole; portrait screens split it at `split` into two stacked pages.
+// A password-gated card: a photo of a two-page letter, and optionally a "click here" box on it that opens a collage
+// of photos. The page ships no content; after the password is checked on the server (server/cards.mjs) everything is
+// fetched with an HttpOnly cookie. Wide screens show the spread whole; portrait screens split it at `split`.
+// Views live in the URL hash (#photos, #photos/3) so a phone's back gesture steps back through them.
 const { slug, title = 'hi' } = Astro.props;
 ---
 <html lang="en">
@@ -12,18 +13,30 @@ const { slug, title = 'hi' } = Astro.props;
     <meta name="referrer" content="no-referrer" />
     <title>{title}</title>
   </head>
-  <body data-slug={slug}>
+  <body data-slug={slug} data-view="card">
     <form id="gate" class="gate" autocomplete="off" hidden>
       <input id="pw" type="password" placeholder="password" aria-label="password" autocapitalize="off" spellcheck="false" />
       <p id="msg" role="status"></p>
     </form>
     <main id="card" class="card" hidden></main>
+    <section id="collage" class="collage" aria-label="photos" hidden>
+      <a class="back" href="#" id="collage-back">&larr; letter</a>
+      <div class="grid" id="grid"></div>
+    </section>
+    <div id="viewer" class="viewer" role="dialog" aria-label="photo" hidden>
+      <img id="viewer-img" alt="" />
+      <button type="button" class="vbtn close" id="viewer-close" aria-label="close">&times;</button>
+      <button type="button" class="vbtn prev" id="viewer-prev" aria-label="previous photo">&lsaquo;</button>
+      <button type="button" class="vbtn next" id="viewer-next" aria-label="next photo">&rsaquo;</button>
+    </div>
   </body>
 </html>
 
 <style is:global>
   html, body { margin: 0; padding: 0; background: #fff; }
   body { font-family: "Times New Roman", Times, serif; min-height: 100dvh; }
+  html.overlay { overflow: hidden; } /* the letter underneath doesn't scroll while photos are open */
+  [hidden] { display: none !important; }
 
   .gate {
     min-height: 100dvh;
@@ -33,7 +46,6 @@ const { slug, title = 'hi' } = Astro.props;
     justify-content: center;
     gap: 0.6em;
   }
-  .gate[hidden], .card[hidden] { display: none; }
   .gate input {
     font: inherit;
     font-size: 16px; /* below 16px, iOS zooms the page when the field is focused */
@@ -61,6 +73,7 @@ const { slug, title = 'hi' } = Astro.props;
   .spread {
     display: flex;
     width: min(calc(100vw - 32px), calc((100dvh - 32px) * var(--ar)));
+    transform-origin: 0 0;
   }
   .page {
     position: relative;
@@ -78,15 +91,28 @@ const { slug, title = 'hi' } = Astro.props;
     -webkit-user-drag: none;
   }
 
+  /* the "click here" box: a soft glow twice after the letter appears, a highlighter wash on hover */
+  .hot {
+    position: absolute;
+    border-radius: 6px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    animation: beckon 2.2s ease 1.8s 2;
+  }
+  .hot:hover, .hot:focus-visible { background: rgba(255, 214, 0, 0.3); mix-blend-mode: multiply; outline: none; }
+  @keyframes beckon {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 190, 0, 0); background: transparent; }
+    50% { box-shadow: 0 0 0 5px rgba(255, 190, 0, 0.35); background: rgba(255, 214, 0, 0.25); }
+  }
+
   /* zoom on mouse/trackpad devices (script below); touch screens keep the browser's own pinch-zoom */
-  .spread { transform-origin: 0 0; }
   @media (orientation: landscape) {
     .card { height: 100dvh; overflow: hidden; }
   }
   @media (orientation: landscape) and (hover: hover) and (pointer: fine) {
     .card { cursor: zoom-in; }
     .card.zoomed { cursor: grab; }
-    .card.grabbing { cursor: grabbing; }
+    .card.grabbing, .card.grabbing .hot { cursor: grabbing; }
   }
   .hint {
     position: fixed;
@@ -106,46 +132,145 @@ const { slug, title = 'hi' } = Astro.props;
     .spread { flex-direction: column; width: 100vw; gap: 12px; padding: 12px 0; }
     .page { flex: none; width: 100%; }
   }
+
+  /* collage: polaroid-ish prints, slightly askew, in columns that keep the file order roughly left to right */
+  .collage {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: #fff;
+    padding: 56px 16px 40px;
+    box-sizing: border-box;
+  }
+  .collage .back {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 1;
+    padding: 4px 10px;
+    color: #000;
+    background: rgba(255, 255, 255, 0.9);
+    text-decoration: none;
+    font-size: 16px;
+  }
+  .grid { display: flex; gap: var(--gap); max-width: 1200px; margin: 0 auto; align-items: flex-start; --gap: 24px; }
+  .col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap); }
+  .tile {
+    display: block;
+    padding: 8px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16), 0 8px 20px rgba(0, 0, 0, 0.08);
+    transform: rotate(var(--r));
+    transition: transform 0.25s ease;
+    opacity: 0;
+    animation: drop 0.5s ease var(--d) forwards;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tile img { display: block; width: 100%; height: auto; background: #f1efea; }
+  .tile:hover, .tile:focus-visible { transform: rotate(0deg) scale(1.02); outline: none; }
+  @keyframes drop { from { opacity: 0; translate: 0 10px; } to { opacity: 1; translate: 0 0; } }
+  @media (max-width: 600px) {
+    .collage { padding: 52px 10px 32px; }
+    .grid { --gap: 12px; }
+    .tile { padding: 5px; }
+  }
+
+  /* one photo, full screen */
+  .viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(18, 18, 18, 0.95);
+  }
+  .viewer img {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .vbtn {
+    position: absolute;
+    border: 0;
+    background: none;
+    color: #fff;
+    opacity: 0.75;
+    font: 300 34px/1 "Times New Roman", Times, serif;
+    padding: 12px 16px;
+    cursor: pointer;
+  }
+  .vbtn:hover, .vbtn:focus-visible { opacity: 1; outline: none; }
+  .vbtn.close { top: 4px; right: 4px; }
+  .vbtn.prev { left: 0; top: 50%; translate: 0 -50%; font-size: 48px; }
+  .vbtn.next { right: 0; top: 50%; translate: 0 -50%; font-size: 48px; }
 </style>
 
 <script>
-  type Meta = { width: number; height: number; split: number; v: string; alt?: string };
+  type Asset = { id: string; width: number; height: number; v: string };
+  type Box = { x: number; y: number; w: number; h: number };
+  type Meta = { spread: Asset & { split: number; hotspot?: Box }; photos: (Asset & { thumb: string })[]; alt?: string };
 
   const slug = document.body.dataset.slug!;
-  const gate = document.getElementById('gate') as HTMLFormElement;
-  const pw = document.getElementById('pw') as HTMLInputElement;
-  const msg = document.getElementById('msg')!;
-  const card = document.getElementById('card')!;
+  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const gate = $<HTMLFormElement>('gate');
+  const pw = $<HTMLInputElement>('pw');
+  const msg = $('msg');
+  const card = $('card');
+  const collage = $('collage');
+  const grid = $('grid');
+  const viewer = $('viewer');
+  const viewerImg = $<HTMLImageElement>('viewer-img');
   const q = `slug=${encodeURIComponent(slug)}`;
+  const url = (id: string, v: string) => `/__card/image?${q}&id=${id}&v=${v}`;
+  let meta: Meta | null = null;
 
   const errorOf = async (r: Response) => (await r.json().catch(() => null))?.error ?? 'something went wrong';
 
   async function render(m: Meta) {
-    const src = `/__card/image?${q}&v=${m.v}`;
+    meta = m;
+    const s = m.spread;
     const spread = document.createElement('div');
     spread.className = 'spread';
-    spread.style.setProperty('--ar', String(m.width / m.height));
+    spread.style.setProperty('--ar', String(s.width / s.height));
     const images: HTMLImageElement[] = [];
+    // the hit area is a little bigger than the drawn box: easier to tap
+    const hot = s.hotspot && m.photos.length ? { x: s.hotspot.x - 0.006, y: s.hotspot.y - 0.008, w: s.hotspot.w + 0.012, h: s.hotspot.h + 0.016 } : null;
 
-    for (const [from, to] of [[0, m.split], [m.split, 1]]) {
+    for (const [from, to] of [[0, s.split], [s.split, 1]]) {
       const f = to - from;
       const page = document.createElement('div');
       page.className = 'page';
       page.style.setProperty('--f', String(f));
-      page.style.aspectRatio = `${f * m.width} / ${m.height}`;
+      page.style.aspectRatio = `${f * s.width} / ${s.height}`;
       const sheet = document.createElement('div');
       sheet.className = 'sheet';
       sheet.style.width = `${100 / f}%`;
       sheet.style.left = `${(-100 * from) / f}%`;
 
       const img = new Image();
-      img.src = src;
+      img.src = url(s.id, s.v);
       img.draggable = false;
       if (from === 0) img.alt = m.alt ?? 'birthday card';
       else { img.alt = ''; img.setAttribute('aria-hidden', 'true'); }
       sheet.append(img);
       images.push(img);
 
+      if (hot && hot.x < to && hot.x + hot.w > from) {
+        const a = document.createElement('a');
+        a.className = 'hot';
+        a.href = '#photos';
+        Object.assign(a.style, { left: `${hot.x * 100}%`, top: `${hot.y * 100}%`, width: `${hot.w * 100}%`, height: `${hot.h * 100}%` });
+        const centre = hot.x + hot.w / 2;
+        if (centre >= from && centre < to) a.setAttribute('aria-label', 'open the photos');
+        else { a.tabIndex = -1; a.setAttribute('aria-hidden', 'true'); } // the half of the box that spills over the fold
+        a.addEventListener('click', (e) => { e.preventDefault(); go('#photos'); });
+        sheet.append(a);
+      }
       page.append(sheet);
       spread.append(page);
     }
@@ -155,8 +280,115 @@ const { slug, title = 'hi' } = Astro.props;
     gate.hidden = true;
     card.hidden = false;
     requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add('in')));
-    enableZoom(card, spread, m.width);
+    enableZoom(card, spread, s.width);
+    route();
   }
+
+  // ---- views: '' (the letter), '#photos' (collage), '#photos/N' (one photo) ----
+
+  function view(): { name: 'card' | 'photos' | 'photo'; i: number } {
+    const n = meta?.photos.length ?? 0;
+    if (location.hash === '#photos' && n) return { name: 'photos', i: 0 };
+    const m = /^#photos\/(\d+)$/.exec(location.hash);
+    if (m && +m[1] >= 1 && +m[1] <= n) return { name: 'photo', i: +m[1] };
+    return { name: 'card', i: 0 };
+  }
+  // entries this page pushed carry {card: true}, so "back" can be a real history.back() (and the phone's back gesture agrees)
+  function go(hash: string) { history.pushState({ card: true }, '', hash); route(); }
+  function back(to: string) {
+    if (history.state?.card) history.back();
+    else { history.replaceState(null, '', to || location.pathname + location.search); route(); }
+  }
+  addEventListener('popstate', () => route());
+  addEventListener('hashchange', () => route());
+
+  let shown = 'card';
+  function route() {
+    if (!meta) return;
+    const v = view();
+    collage.hidden = v.name === 'card';
+    viewer.hidden = v.name !== 'photo';
+    document.documentElement.classList.toggle('overlay', v.name !== 'card');
+    document.body.dataset.view = v.name;
+    if (v.name !== 'card') buildCollage();
+    if (v.name === 'photo') showPhoto(v.i);
+    if (v.name === 'photos' && shown === 'card') $('collage-back').focus({ preventScroll: true });
+    if (v.name === 'card' && shown !== 'card') card.querySelector<HTMLElement>('.hot[aria-label]')?.focus({ preventScroll: true });
+    shown = v.name;
+  }
+
+  // columns are filled shortest-first from the known aspect ratios, so the order reads roughly left to right
+  let columns = 0;
+  function buildCollage() {
+    const m = meta!;
+    const want = innerWidth < 600 ? 2 : innerWidth < 1000 ? 3 : 4;
+    if (want === columns) return;
+    columns = want;
+    const cols = Array.from({ length: want }, () => Object.assign(document.createElement('div'), { className: 'col' }));
+    const heights = new Array(want).fill(0);
+    m.photos.forEach((p, i) => {
+      const a = document.createElement('a');
+      a.className = 'tile';
+      a.href = `#photos/${i + 1}`;
+      a.style.setProperty('--r', `${(((i * 37) % 7) - 3) * 0.7}deg`);
+      a.style.setProperty('--d', `${Math.min(i, 14) * 50}ms`);
+      a.addEventListener('click', (e) => { e.preventDefault(); go(`#photos/${i + 1}`); });
+      const img = new Image(800, Math.round((800 * p.height) / p.width)); // reserves the right space before it loads
+      img.src = url(p.thumb, p.v);
+      img.loading = i < 8 ? 'eager' : 'lazy';
+      img.decoding = 'async';
+      img.alt = `photo ${i + 1}`;
+      a.append(img);
+      const c = heights.indexOf(Math.min(...heights));
+      cols[c].append(a);
+      heights[c] += p.height / p.width;
+    });
+    grid.replaceChildren(...cols);
+  }
+  addEventListener('resize', () => { if (!collage.hidden) buildCollage(); });
+
+  // ---- one photo: shows the (cached) thumbnail at once, then swaps in the full size ----
+  let current = 0;
+  function showPhoto(i: number) {
+    const p = meta!.photos[i - 1];
+    current = i;
+    viewerImg.src = url(p.thumb, p.v);
+    viewerImg.alt = `photo ${i} of ${meta!.photos.length}`;
+    const full = new Image();
+    full.onload = () => { if (current === i) viewerImg.src = full.src; };
+    full.src = url(p.id, p.v);
+    $('viewer-prev').hidden = $('viewer-next').hidden = meta!.photos.length < 2;
+  }
+  function step(d: number) {
+    const n = meta!.photos.length;
+    if (n < 2) return;
+    history.replaceState(history.state, '', `#photos/${((current - 1 + d + n) % n) + 1}`);
+    route();
+  }
+  $('viewer-close').addEventListener('click', () => back('#photos'));
+  $('viewer-prev').addEventListener('click', (e) => { e.stopPropagation(); step(-1); });
+  $('viewer-next').addEventListener('click', (e) => { e.stopPropagation(); step(1); });
+  viewer.addEventListener('click', (e) => { if (e.target === viewer) back('#photos'); }); // tap outside the photo
+  $('collage-back').addEventListener('click', (e) => { e.preventDefault(); back(''); });
+  // swipe between photos (one finger, and not while the page is pinch-zoomed)
+  let touch: { x: number; y: number } | null = null;
+  viewer.addEventListener('touchstart', (e) => {
+    touch = e.touches.length === 1 && (visualViewport?.scale ?? 1) < 1.05 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+  }, { passive: true });
+  viewer.addEventListener('touchend', (e) => {
+    if (!touch) return;
+    const dx = e.changedTouches[0].clientX - touch.x, dy = e.changedTouches[0].clientY - touch.y;
+    touch = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) step(dx < 0 ? 1 : -1);
+  });
+  addEventListener('keydown', (e) => {
+    const v = document.body.dataset.view;
+    if (v === 'photo') {
+      if (e.key === 'ArrowRight') step(1);
+      else if (e.key === 'ArrowLeft') step(-1);
+      else if (e.key === 'Escape') back('#photos');
+    } else if (v === 'photos' && e.key === 'Escape') back('');
+  });
 
   /**
    * Pan and zoom for mouse/trackpad in the side-by-side layout: pinch (or ctrl+scroll) zooms around the pointer,
@@ -164,7 +396,7 @@ const { slug, title = 'hi' } = Astro.props;
    * native pinch-zoom, which is better than anything a page can do and works in both layouts.
    */
   function enableZoom(stage: HTMLElement, spread: HTMLElement, naturalWidth: number) {
-    const active = () => matchMedia('(orientation: landscape) and (hover: hover) and (pointer: fine)').matches;
+    const active = () => document.body.dataset.view === 'card' && matchMedia('(orientation: landscape) and (hover: hover) and (pointer: fine)').matches;
     let s = 1, tx = 0, ty = 0;
 
     const apply = (animate = false) => {
@@ -242,8 +474,8 @@ const { slug, title = 'hi' } = Astro.props;
     stage.addEventListener('pointerup', release);
     stage.addEventListener('pointercancel', release);
     stage.addEventListener('click', (e) => {
-      if (dragged) { dragged = false; return; } // end of a drag, not a click
-      if (!active()) return;
+      if (dragged) { e.preventDefault(); e.stopPropagation(); dragged = false; return; } // end of a drag, even over the box
+      if (!active() || (e.target as HTMLElement).closest('.hot')) return;
       if (s > 1) reset();
       else zoomTo(2.5, e.clientX, e.clientY, true);
     }, true);

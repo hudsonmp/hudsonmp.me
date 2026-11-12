@@ -1,6 +1,7 @@
 /**
- * Password-gated cards (e.g. /mom-birthday-2026). The repo is public, so the card itself (the photo) is
- * committed only as ciphertext in cards/<slug>.card, encrypted with CARD_KEY (32 random bytes, never in the repo).
+ * Password-gated cards (e.g. /mom-birthday-2026). The repo is public, so a card (the letter photo, its collage photos,
+ * and their metadata) is committed only as ciphertext in cards/<slug>/, encrypted with CARD_KEY (32 random bytes,
+ * never in the repo): meta.card is the JSON, every other <id>.card is one WebP image.
  * The reader's password is checked here on the server against CARD_PASSWORD_<SLUG>; it never reaches the client
  * and the ciphertext is useless without CARD_KEY, so a short password is not open to offline guessing.
  *
@@ -10,8 +11,8 @@
  *
  * Endpoints (vercel.json maps /__card/:action to api/cards.mjs; the dev server serves the same paths):
  *   POST /__card/unlock {slug, password}  sets an HttpOnly cookie (Path=/__card) for 30 days
- *   GET  /__card/meta?slug=               {width, height, split, v}  (cookie required)
- *   GET  /__card/image?slug=              the image bytes            (cookie required)
+ *   GET  /__card/meta?slug=               the card's metadata (scripts/seal-card.mjs)  (cookie required)
+ *   GET  /__card/image?slug=&id=          one image                                   (cookie required)
  * A card whose password variable is unset answers 404, the same as a card that does not exist.
  */
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -41,37 +42,33 @@ export function cardKey(env) {
   return key;
 }
 
+export const ASSET_ID = /^[a-z0-9]{1,24}$/;
+
 /**
- * File format: "CARD1" | iv (12) | tag (16) | AES-256-GCM( u32 metaLength | meta JSON | image bytes ).
- * The slug is bound in as associated data, so one card's file can't be served under another card's password.
+ * File format: "CARD1" | iv (12) | tag (16) | AES-256-GCM(bytes). The card's slug and the file's id are bound in as
+ * associated data, so a file can't be swapped for another one or served under another card's password.
  */
-export function sealCard(slug, meta, image, key) {
+export function seal(slug, id, bytes, key) {
   const iv = randomBytes(12);
   const c = createCipheriv('aes-256-gcm', subkey(key, 'seal'), iv);
-  c.setAAD(Buffer.from('card:' + slug));
-  const m = Buffer.from(JSON.stringify(meta));
-  const len = Buffer.alloc(4);
-  len.writeUInt32BE(m.length);
-  const data = Buffer.concat([c.update(Buffer.concat([len, m, image])), c.final()]);
+  c.setAAD(Buffer.from(`card:${slug}:${id}`));
+  const data = Buffer.concat([c.update(bytes), c.final()]);
   return Buffer.concat([MAGIC, iv, c.getAuthTag(), data]);
 }
 
-export function openCard(slug, sealed, key) {
+export function unseal(slug, id, sealed, key) {
   if (!sealed.subarray(0, MAGIC.length).equals(MAGIC)) throw fail(500, 'not a card file');
   let at = MAGIC.length;
   const iv = sealed.subarray(at, (at += 12));
   const tag = sealed.subarray(at, (at += 16));
   const d = createDecipheriv('aes-256-gcm', subkey(key, 'seal'), iv);
-  d.setAAD(Buffer.from('card:' + slug));
+  d.setAAD(Buffer.from(`card:${slug}:${id}`));
   d.setAuthTag(tag);
-  let plain;
   try {
-    plain = Buffer.concat([d.update(sealed.subarray(at)), d.final()]);
+    return Buffer.concat([d.update(sealed.subarray(at)), d.final()]);
   } catch {
     throw fail(500, 'card does not decrypt: CARD_KEY differs from the key it was sealed with');
   }
-  const n = plain.readUInt32BE(0);
-  return { meta: JSON.parse(plain.subarray(4, 4 + n).toString('utf8')), image: plain.subarray(4 + n) };
 }
 
 // cookie value: "<expiry seconds>.<mac>". The mac covers the password's hash, so changing the password signs everyone out.
@@ -84,8 +81,8 @@ function validCookie(value, key, slug, password, nowMs) {
   return timingSafeEqual(Buffer.from(m[2]), Buffer.from(mac(key, slug, password, m[1])));
 }
 
-/** Pure request handler: no I/O except `readCard`. Returns {status, json} or {status, bytes, type}, plus `cookie`/`miss`. */
-export function createCards({ env, readCard, now = () => Date.now() }) {
+/** Pure request handler: no I/O except `readFile(slug, id)`. Returns {status, json} or {status, bytes, type}, plus `cookie`/`miss`. */
+export function createCards({ env, readFile, now = () => Date.now() }) {
   return async ({ method, action, query = {}, body = {}, cookies = {}, secure = true }) => {
     const slug = String((method === 'POST' ? body?.slug : query.slug) ?? '');
     const password = SLUG.test(slug) ? env[passwordVar(slug)] : undefined;
@@ -111,21 +108,22 @@ export function createCards({ env, readCard, now = () => Date.now() }) {
     if (method !== 'GET') return { status: 405, json: { error: 'method not allowed' } };
     if (!validCookie(cookies[cookieName(slug)], key, slug, password, now())) return { status: 401, json: { error: 'locked' } };
 
-    const sealed = await readCard(slug);
-    if (!sealed) return { status: 409, json: { error: 'not ready yet' } };
-    const { meta, image } = openCard(slug, sealed, key);
     if (action === 'meta') {
-      const { type, ...rest } = meta;
-      return { status: 200, json: rest };
+      const sealed = await readFile(slug, 'meta');
+      if (!sealed) return { status: 409, json: { error: 'not ready yet' } };
+      return { status: 200, json: JSON.parse(unseal(slug, 'meta', sealed, key).toString('utf8')) };
     }
-    return { status: 200, bytes: image, type: meta.type, cache: 'private, max-age=86400' };
+    const id = String(query.id ?? '');
+    const sealed = ASSET_ID.test(id) && id !== 'meta' ? await readFile(slug, id) : null;
+    if (!sealed) return { status: 404, json: { error: 'not found' } };
+    return { status: 200, bytes: unseal(slug, id, sealed, key), type: 'image/webp', cache: 'private, max-age=86400' };
   };
 }
 
-/** cards/<slug>.card under `root`, or null if it isn't there yet */
-export const fileReader = (root) => async (slug) => {
+/** cards/<slug>/<id>.card under `root`, or null if it isn't there (slug and id are validated by the caller) */
+export const fileReader = (root) => async (slug, id) => {
   try {
-    return await fs.readFile(path.join(root, 'cards', `${slug}.card`));
+    return await fs.readFile(path.join(root, 'cards', slug, `${id}.card`));
   } catch (e) {
     if (e.code === 'ENOENT') return null;
     throw e;
@@ -173,7 +171,7 @@ export async function serveCards(req, res, { env, root, local = false }) {
     const ip = String(req.headers['x-forwarded-for'] ?? req.socket?.remoteAddress ?? '').split(',')[0].trim();
     if (req.method === 'POST' && blocked(ip)) return send(429, { error: 'too many tries; wait a few minutes' });
 
-    const handle = createCards({ env, readCard: fileReader(root) });
+    const handle = createCards({ env, readFile: fileReader(root) });
     const out = await handle({
       method: req.method,
       action,

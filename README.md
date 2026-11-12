@@ -29,10 +29,12 @@ Request size on Vercel is capped (about 4.5 MB), so images are uploaded one at a
 
 ## Cards (password-gated pages, e.g. `/mom-birthday-2026`)
 
-One photo of a two-page spread behind a password. Wide screens show the spread whole, with pinch/click to zoom and
-drag/scroll to pan; portrait screens split it at the fold into two stacked pages and keep the phone's own pinch-zoom.
-The repo is public, so the photo is committed only as ciphertext (`cards/<slug>.card`); the password is checked by
-`api/cards.mjs` (logic in `server/cards.mjs`) and never reaches the browser.
+A photo of a two-page letter behind a password, optionally with a "click here" box on it that opens a collage of
+photos (tap one to enlarge; arrows or swipe to move between them; back returns to the letter). Wide screens show the
+letter whole, with pinch/click to zoom and drag/scroll to pan; portrait screens split it at the fold into two stacked
+pages and keep the phone's own pinch-zoom. The repo is public, so everything is committed only as ciphertext
+(`cards/<slug>/*.card`); the password is checked by `api/cards.mjs` (logic in `server/cards.mjs`) and never reaches
+the browser.
 
 Vercel environment variables (type *Secret*, Production and Preview), and the same lines in `.env.local`:
 
@@ -41,9 +43,16 @@ Vercel environment variables (type *Secret*, Production and Preview), and the sa
 | `CARD_KEY` | base64 of 32 random bytes; encrypts every card. Lose it and the cards must be re-sealed. |
 | `CARD_PASSWORD_MOM_BIRTHDAY_2026` | the reader password for that card (slug upper-cased, `-` becomes `_`); case-sensitive |
 
-To make or update a card: put the photo in `.private/cards/<slug>/` (gitignored), run
-`node scripts/seal-card.mjs <slug> .private/cards/<slug>/photo.jpg --split 0.5`, and commit `cards/<slug>.card`.
-`--split` is where the left page ends, as a fraction of the width. A new card also needs `src/pages/<slug>.astro`
-(`<Card slug="<slug>" />`) and its password variable in Vercel.
+To make or update a card, keep the originals in `.private/cards/<slug>/` (gitignored) and run
+
+```
+node scripts/seal-card.mjs <slug> .private/cards/<slug>/photo.jpeg --split 0.499 \
+  --hotspot x,y,w,h --photos .private/cards/<slug>/collage --preview /tmp/check.png
+```
+
+then commit `cards/<slug>/`. `--split` is where the left page ends and `--hotspot` is the "click here" box, both as
+fractions of the letter photo (`--preview` draws them so they can be checked). Collage photos (jpg, png, heic) appear
+in file-name order. A new card also needs `src/pages/<slug>.astro` (`<Card slug="<slug>" />`) and its password
+variable in Vercel.
 
 Readers stay signed in for 30 days (an HttpOnly cookie scoped to `/__card`); changing the password signs them out.
