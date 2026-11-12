@@ -13,7 +13,7 @@ import sharp from 'sharp';
 import { cardKey, sealCard, openCard } from '../server/cards.mjs';
 import { loadEnv } from '../integrations/local-publish.mjs';
 
-const MAX_WIDTH = 3200; // enough to read handwriting zoomed in on a phone; keeps the file well under Vercel's 4.5 MB response cap
+const MAX_WIDTH = 4800; // sharp enough to zoom into handwriting (~17 MP decoded is still safe on phones); ~1 MB as WebP
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
 const args = process.argv.slice(2);
