@@ -6,7 +6,7 @@ import { createCards, sealCard, openCard, passwordVar } from '../server/cards.mj
 
 const key = randomBytes(32);
 const env = { CARD_KEY: key.toString('base64'), [passwordVar('mom-birthday-2026')]: 'test-password' };
-const meta = { width: 400, height: 200, split: 0.5, links: [{ x: 0.1, y: 0.1, w: 0.2, h: 0.1, href: 'https://example.com' }], v: 'abc', type: 'image/webp' };
+const meta = { width: 400, height: 200, split: 0.5, v: 'abc', type: 'image/webp', alt: 'a private caption' };
 const image = randomBytes(5000);
 const sealed = sealCard('mom-birthday-2026', meta, image, key);
 const files = { 'mom-birthday-2026': sealed };
@@ -26,7 +26,8 @@ test('seal round-trips and is bound to its slug and key', () => {
   assert.ok(back.image.equals(image));
   assert.throws(() => openCard('someone-else', sealed, key));
   assert.throws(() => openCard('mom-birthday-2026', sealed, randomBytes(32)));
-  assert.equal(sealed.includes(Buffer.from('example.com')), false, 'links must not appear in the ciphertext');
+  assert.equal(sealed.includes(Buffer.from('a private caption')), false, 'metadata must not appear in the ciphertext');
+  assert.equal(sealed.includes(image.subarray(0, 64)), false, 'image bytes must not appear in the ciphertext');
 });
 
 test('wrong password is refused and counted; right one sets a scoped HttpOnly cookie', async () => {
@@ -49,7 +50,8 @@ test('meta and image need a valid cookie', async () => {
   const c = cookieFrom(await unlock(handle, 'test-password'));
   const m = await get(handle, 'meta', c);
   assert.equal(m.status, 200);
-  assert.deepEqual(m.json.links, meta.links);
+  assert.equal(m.json.split, 0.5);
+  assert.equal(m.json.alt, 'a private caption');
   assert.equal(m.json.type, undefined);
   const img = await get(handle, 'image', c);
   assert.equal(img.type, 'image/webp');

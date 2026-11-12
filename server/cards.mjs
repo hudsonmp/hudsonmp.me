@@ -1,5 +1,5 @@
 /**
- * Password-gated cards (e.g. /mom-birthday-2026). The repo is public, so the card itself (image + link boxes) is
+ * Password-gated cards (e.g. /mom-birthday-2026). The repo is public, so the card itself (the photo) is
  * committed only as ciphertext in cards/<slug>.card, encrypted with CARD_KEY (32 random bytes, never in the repo).
  * The reader's password is checked here on the server against CARD_PASSWORD_<SLUG>; it never reaches the client
  * and the ciphertext is useless without CARD_KEY, so a short password is not open to offline guessing.
@@ -10,8 +10,8 @@
  *
  * Endpoints (vercel.json maps /__card/:action to api/cards.mjs; the dev server serves the same paths):
  *   POST /__card/unlock {slug, password}  sets an HttpOnly cookie (Path=/__card) for 30 days
- *   GET  /__card/meta?slug=               {width, height, split, links, v}  (cookie required)
- *   GET  /__card/image?slug=              the image bytes                    (cookie required)
+ *   GET  /__card/meta?slug=               {width, height, split, v}  (cookie required)
+ *   GET  /__card/image?slug=              the image bytes            (cookie required)
  * A card whose password variable is unset answers 404, the same as a card that does not exist.
  */
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';

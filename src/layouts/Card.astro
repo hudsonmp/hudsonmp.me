@@ -1,6 +1,6 @@
 ---
-// A password-gated card: one photo (a two-page spread) with clickable regions. The page ships no content; after the
-// password is checked on the server (server/cards.mjs) the image and link boxes are fetched with an HttpOnly cookie.
+// A password-gated card: one photo of a two-page spread. The page ships no content; after the password is checked
+// on the server (server/cards.mjs) the image is fetched with an HttpOnly cookie.
 // Wide screens show the spread whole; portrait screens split it at `split` into two stacked pages.
 const { slug, title = 'hi' } = Astro.props;
 ---
@@ -57,7 +57,7 @@ const { slug, title = 'hi' } = Astro.props;
   }
   .card.in { opacity: 1; }
 
-  /* the spread fits the viewport; each page is a window onto the same full-size sheet, so link boxes stay aligned */
+  /* the spread fits the viewport; each page is a window onto the same full-size sheet, so the halves meet at the fold */
   .spread {
     display: flex;
     width: min(calc(100vw - 32px), calc((100dvh - 32px) * var(--ar)));
@@ -78,17 +78,6 @@ const { slug, title = 'hi' } = Astro.props;
     -webkit-user-drag: none;
   }
 
-  /* links: a faint highlighter wash so they can be found on a phone (no hover there), stronger on hover/focus */
-  .hot {
-    position: absolute;
-    border-radius: 4px;
-    background: rgba(255, 214, 0, 0.16);
-    mix-blend-mode: multiply;
-    transition: background 0.2s;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .hot:hover, .hot:focus-visible { background: rgba(255, 214, 0, 0.42); outline: none; }
-
   /* zoom on mouse/trackpad devices (script below); touch screens keep the browser's own pinch-zoom */
   .spread { transform-origin: 0 0; }
   @media (orientation: landscape) {
@@ -97,8 +86,7 @@ const { slug, title = 'hi' } = Astro.props;
   @media (orientation: landscape) and (hover: hover) and (pointer: fine) {
     .card { cursor: zoom-in; }
     .card.zoomed { cursor: grab; }
-    .card.grabbing, .card.grabbing .hot { cursor: grabbing; }
-    .hot { cursor: pointer; }
+    .card.grabbing { cursor: grabbing; }
   }
   .hint {
     position: fixed;
@@ -121,8 +109,7 @@ const { slug, title = 'hi' } = Astro.props;
 </style>
 
 <script>
-  type Link = { x: number; y: number; w: number; h: number; href: string; label?: string };
-  type Meta = { width: number; height: number; split: number; links: Link[]; v: string; alt?: string };
+  type Meta = { width: number; height: number; split: number; v: string; alt?: string };
 
   const slug = document.body.dataset.slug!;
   const gate = document.getElementById('gate') as HTMLFormElement;
@@ -132,7 +119,6 @@ const { slug, title = 'hi' } = Astro.props;
   const q = `slug=${encodeURIComponent(slug)}`;
 
   const errorOf = async (r: Response) => (await r.json().catch(() => null))?.error ?? 'something went wrong';
-  const host = (href: string) => { try { return new URL(href).hostname.replace(/^www\./, ''); } catch { return href; } };
 
   async function render(m: Meta) {
     const src = `/__card/image?${q}&v=${m.v}`;
@@ -160,19 +146,6 @@ const { slug, title = 'hi' } = Astro.props;
       sheet.append(img);
       images.push(img);
 
-      for (const l of m.links) {
-        if (l.x >= to || l.x + l.w <= from) continue; // not on this page
-        const a = document.createElement('a');
-        a.className = 'hot';
-        a.href = l.href;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        Object.assign(a.style, { left: `${l.x * 100}%`, top: `${l.y * 100}%`, width: `${l.w * 100}%`, height: `${l.h * 100}%` });
-        const centre = l.x + l.w / 2;
-        if (centre >= from && centre < to) a.setAttribute('aria-label', l.label ?? host(l.href));
-        else { a.tabIndex = -1; a.setAttribute('aria-hidden', 'true'); } // the half of a box that spills over the gutter
-        sheet.append(a);
-      }
       page.append(sheet);
       spread.append(page);
     }
@@ -269,8 +242,8 @@ const { slug, title = 'hi' } = Astro.props;
     stage.addEventListener('pointerup', release);
     stage.addEventListener('pointercancel', release);
     stage.addEventListener('click', (e) => {
-      if (dragged) { e.preventDefault(); e.stopPropagation(); dragged = false; return; } // end of a drag, even over a link
-      if (!active() || (e.target as HTMLElement).closest('a')) return;
+      if (dragged) { dragged = false; return; } // end of a drag, not a click
+      if (!active()) return;
       if (s > 1) reset();
       else zoomTo(2.5, e.clientX, e.clientY, true);
     }, true);
